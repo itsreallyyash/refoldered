@@ -212,6 +212,19 @@ export default function Home() {
           <div className="exhibitCaption">exhibit b — mfr mark 714</div>
         </div>
 
+        <div className="scope">
+          <div className="scopeLabel">&#9671; signal trace &#9671;</div>
+          <div className="scopeScreen">
+            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="scopeWave">
+              <path
+                className="scopeTrack"
+                d="M0,20 C8,5 17,5 25,20 C33,35 42,35 50,20 C58,5 67,5 75,20 C83,35 92,35 100,20 C108,5 117,5 125,20 C133,35 142,35 150,20 C158,5 167,5 175,20 C183,35 192,35 200,20"
+                fill="none"
+              />
+            </svg>
+          </div>
+        </div>
+
         <div className="deck">
           <div className="deckLabel">&#9671; archive player &#9671;</div>
           <div className="slots">
