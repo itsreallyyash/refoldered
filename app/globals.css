@@ -1,13 +1,12 @@
 :root {
-  --black: #050505;
-  --panel: #0a0a0a;
-  --ink: rgba(255, 255, 255, 0.92);
-  --ink-mid: rgba(255, 255, 255, 0.6);
-  --ink-dim: rgba(255, 255, 255, 0.38);
-  --line: rgba(255, 255, 255, 0.55);
-  --red: #c23a2e;
-  --red-dim: rgba(194, 58, 46, 0.55);
-  --blood: #2a0806;
+  --black: #070706;
+  --ink: rgba(240, 238, 230, 0.92);
+  --ink-mid: rgba(240, 238, 230, 0.6);
+  --ink-dim: rgba(240, 238, 230, 0.35);
+  --red: #d43d2a;
+  --red-dim: rgba(212, 61, 42, 0.5);
+  --blood: #1d0503;
+  --poster-scale: 1;
 }
 
 * {
@@ -20,14 +19,10 @@ html,
 body {
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: var(--black);
   font-family: var(--font-mono), ui-monospace, "SF Mono", "Courier New", Courier, monospace;
   color-scheme: dark;
-  overflow-x: hidden;
-}
-
-body {
-  overflow-y: auto;
 }
 
 /* ---------- GATE ---------- */
@@ -65,572 +60,563 @@ body {
   pointer-events: none;
 }
 
-/* ---------- STAGE / LAYOUT ---------- */
-.stage {
-  position: relative;
-  min-height: 100vh;
-  padding: 1.6rem 2.2rem 3rem;
+/* ---------- POSTER SCALING ---------- */
+.posterViewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
   opacity: 0;
   transition: opacity 1.6s ease 0.2s;
 }
-.root.entered .stage {
+.root.entered .posterViewport {
   opacity: 1;
 }
+.poster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1600px;
+  height: 1000px;
+  transform: translate(-50%, -50%) scale(var(--poster-scale));
+}
 
+.pageFrame {
+  position: absolute;
+  inset: 12px;
+  border: 1.5px dashed rgba(240, 238, 230, 0.35);
+  pointer-events: none;
+}
+
+/* ---------- GRAIN & STAINS ---------- */
 .grain {
   position: fixed;
   inset: -4px;
   filter: url(#grainFilter);
-  opacity: 0.5;
+  opacity: 0.45;
   mix-blend-mode: screen;
   pointer-events: none;
-  z-index: 5;
+  z-index: 30;
 }
-
 .stain {
-  position: fixed;
+  position: absolute;
   pointer-events: none;
   mix-blend-mode: screen;
-  filter: blur(0.3px);
-  z-index: 1;
 }
-.st1 { top: -2%; left: -2%; width: 12vw; height: 12vw; background: radial-gradient(circle at 30% 30%, var(--blood), transparent 70%); opacity: 0.8; }
-.st2 { top: 2%; right: 4%; width: 5vw; height: 5vw; background: radial-gradient(circle at 50% 50%, var(--blood), transparent 72%); opacity: 0.6; }
-.st3 { bottom: 4%; right: -2%; width: 10vw; height: 14vw; background: radial-gradient(circle at 60% 40%, var(--blood), transparent 70%); opacity: 0.7; }
-.st4 { bottom: 10%; left: 6%; width: 4vw; height: 4vw; background: radial-gradient(circle, var(--blood), transparent 72%); opacity: 0.5; }
+.stA {
+  top: -40px;
+  right: 30px;
+  width: 300px;
+  height: 260px;
+  background:
+    radial-gradient(circle at 60% 30%, var(--blood) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, var(--blood) 0%, transparent 45%),
+    radial-gradient(circle at 80% 75%, #250703 0%, transparent 40%);
+  opacity: 0.95;
+}
+.stB {
+  top: 220px;
+  left: -60px;
+  width: 240px;
+  height: 420px;
+  background:
+    radial-gradient(circle at 30% 20%, var(--blood) 0%, transparent 50%),
+    radial-gradient(circle at 60% 60%, #230602 0%, transparent 45%);
+  opacity: 0.85;
+}
+.stC {
+  bottom: -50px;
+  right: -40px;
+  width: 380px;
+  height: 320px;
+  background:
+    radial-gradient(circle at 40% 60%, var(--blood) 0%, transparent 50%),
+    radial-gradient(circle at 75% 30%, #2a0804 0%, transparent 45%);
+  opacity: 0.95;
+}
+.stD {
+  bottom: 120px;
+  left: 340px;
+  width: 160px;
+  height: 120px;
+  background: radial-gradient(circle, var(--blood) 0%, transparent 60%);
+  opacity: 0.6;
+}
 
-/* ---------- TOP BAR ---------- */
-.topBar {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 2.6rem;
-  position: relative;
-  z-index: 2;
-}
-.topBarTitle {
-  font-size: 0.95rem;
+/* ---------- HEADER ---------- */
+.siteTitle {
+  position: absolute;
+  top: 34px;
+  left: 46px;
+  font-size: 27px;
   letter-spacing: 0.04em;
   color: var(--ink);
 }
-.topBarTitle::after {
-  content: "_";
-  animation: caretBlink 1s step-end infinite;
-}
-.topBarNav {
-  font-size: 0.65rem;
-  letter-spacing: 0.15em;
-  color: var(--ink-mid);
-}
-@keyframes caretBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
 
-/* ---------- MAIN LAYOUT ---------- */
-.layout {
-  display: grid;
-  grid-template-columns: 190px 1fr 300px;
-  gap: 2.5rem;
-  position: relative;
-  z-index: 2;
+/* ---------- TOWER ---------- */
+.towerWrap {
+  position: absolute;
+  left: 36px;
+  top: 76px;
+  width: 280px;
 }
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
+.towerSvg {
+  width: 100%;
+  height: auto;
 }
-
-/* ---------- LEFT: DISC LIST / TOWER ---------- */
-.leftCol {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-.discRow {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  color: var(--ink-mid);
-}
-.discRow.active {
-  color: var(--red);
-}
-.cdIcon {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  fill: none;
-  stroke: var(--ink-dim);
+.towerFace {
+  fill: rgba(240, 238, 230, 0.03);
+  stroke: var(--ink);
   stroke-width: 1.4;
 }
-.cdIcon.active {
-  stroke: var(--red);
-  color: var(--red);
+.towerFins line {
+  stroke: rgba(240, 238, 230, 0.55);
+  stroke-width: 0.9;
 }
-.discNote {
-  margin-top: 1.2rem;
-  font-size: 0.58rem;
-  letter-spacing: 0.15em;
-  color: var(--ink-dim);
-  line-height: 1.7;
+.towerVent {
+  stroke: var(--ink-dim);
+  stroke-width: 1.6;
 }
-
-/* ---------- CENTER: PILL ---------- */
-.centerCol {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 1rem;
+.discOuter {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
 }
-.bracketLabel {
-  font-size: 0.62rem;
-  letter-spacing: 0.35em;
-  color: var(--ink-mid);
-  text-transform: uppercase;
-  margin-bottom: 1.4rem;
+.discFill {
+  fill: url(#towerDots);
+  stroke: none;
 }
-.pillWrap {
-  position: relative;
-  width: 240px;
-  height: 320px;
+.discSheen {
+  stroke: rgba(7, 7, 6, 0.9);
+  stroke-width: 5;
 }
-.pillStage {
-  position: absolute;
-  inset: 0;
-  perspective: 1100px;
-}
-.pillCoin {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  transform-style: preserve-3d;
-  animation: pillSpin 12s linear infinite;
-}
-@keyframes pillSpin {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(360deg); }
-}
-.pillFace {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-}
-.pillFace svg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-.pillBack {
-  transform: rotateY(180deg);
-}
-.mercRing {
-  fill: url(#dotsMed);
+.discHubRing {
+  fill: #070706;
   stroke: var(--ink);
   stroke-width: 1.2;
 }
-.mercStar {
-  stroke: var(--ink);
-  stroke-width: 3.2;
-  stroke-linecap: round;
+.discHubDot {
+  fill: var(--ink);
 }
-.bmwHatch {
-  fill: url(#dotsMed);
-  stroke: var(--ink);
-  stroke-width: 1;
+.towerDisc.active .discHubDot {
+  fill: var(--red);
 }
-
-/* ---------- CENTER: word list + caption ---------- */
-.wordList {
-  margin-top: 1.4rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.66rem;
-  letter-spacing: 0.3em;
-  color: var(--ink-mid);
-  text-transform: uppercase;
+.towerDisc.active .discHubRing {
+  stroke: var(--red);
 }
-.holdingRow {
-  margin-top: 1.6rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.7rem;
+.discLabel {
+  font-size: 13px;
+  fill: var(--ink-dim);
+  font-family: inherit;
 }
-.dotsTrack {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.dotsTrack span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ink-dim);
-}
-.dotsTrack span.on {
-  background: var(--red);
-  box-shadow: 0 0 6px var(--red-dim);
+.towerDisc.active .discLabel {
+  fill: var(--red);
 }
 
-.pillCaptionWrap {
-  margin-top: 1.6rem;
-  display: inline-block;
-  overflow: hidden;
-  white-space: nowrap;
-  width: 0;
-  border-right: 2px solid rgba(255, 255, 255, 0.55);
-  animation: typeWidth 1.5s steps(26, end) forwards, caretBlink2 0.9s step-end infinite;
+/* ---------- CENTER ---------- */
+.flipLabel {
+  position: absolute;
+  top: 96px;
+  left: 660px;
+  transform: translateX(-50%);
+  font-size: 19px;
+  letter-spacing: 0.35em;
+  color: var(--ink);
 }
-.pillCaptionText {
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  color: var(--ink-mid);
-  text-transform: uppercase;
+.streakWrap {
+  position: absolute;
+  left: 380px;
+  top: 170px;
+  width: 560px;
+  height: 440px;
 }
-@keyframes typeWidth {
-  to { width: var(--w); }
-}
-@keyframes caretBlink2 {
-  0%, 100% { border-color: rgba(255, 255, 255, 0.55); }
-  50% { border-color: transparent; }
-}
-
-/* ---------- RIGHT: EQUIPMENT ---------- */
-.rightCol {
-  display: flex;
-  flex-direction: column;
-  gap: 1.6rem;
-}
-.equipBox {
-  border: 1px solid var(--ink-dim);
-  padding: 0.9rem;
-}
-.equipLabel {
-  font-size: 0.6rem;
-  letter-spacing: 0.2em;
-  color: var(--ink-mid);
-  margin-bottom: 0.7rem;
-}
-.equipBody {
-  display: flex;
-  gap: 0.8rem;
-}
-.equipDiscs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.equipDiscs .cdIcon {
-  width: 20px;
-  height: 20px;
-}
-.equipDivider {
-  width: 1px;
-  background: var(--ink-dim);
-}
-.equipReadout {
-  font-size: 0.58rem;
-  letter-spacing: 0.08em;
-  color: var(--ink-mid);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.35rem;
-}
-.equipReadout div:nth-child(2) {
-  color: var(--red);
-}
-
-.deviceRow {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-}
-
-/* ---------- VIAL ---------- */
-.vialWrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.6rem;
-}
-.vialIcon {
-  width: 40px;
-  height: 68px;
-  fill: none;
-  stroke: var(--ink-dim);
-  stroke-width: 1.3;
-}
-.vialLabel {
-  font-size: 0.5rem;
-  letter-spacing: 0.1em;
-  color: var(--ink-dim);
-  text-align: center;
-  line-height: 1.5;
-}
-
-/* ---------- OSCILLOSCOPE DEVICE ---------- */
-.scopeDevice {
-  flex: 1;
-  border: 1px solid var(--ink-dim);
-  padding: 0.8rem;
-}
-.scopeTopRow {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.55rem;
-  letter-spacing: 0.15em;
-  color: var(--ink-dim);
-  margin-bottom: 0.5rem;
-}
-.scopeScreenBox {
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0px, transparent 1px, transparent 10px),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0px, transparent 1px, transparent 10px),
-    rgba(255, 255, 255, 0.02);
-  height: 84px;
-  overflow: hidden;
-}
-.scopeWaveSvg {
+.streakField {
   width: 100%;
   height: 100%;
 }
-.scopeWaveSvg path {
-  stroke: var(--ink);
-  stroke-width: 1.3;
-  fill: none;
+.streakField path {
+  stroke: rgba(240, 238, 230, 0.65);
+  stroke-width: 2.6;
+  animation: streakFlicker 4s ease-in-out infinite;
 }
-.scopeKnobs {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 0.6rem;
+@keyframes streakFlicker {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
 }
-.knobGroup {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-}
-.knob {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1.3px solid var(--ink-dim);
-  position: relative;
-}
-.knob::after {
-  content: "";
+.coinWrap {
   position: absolute;
-  top: 2px;
-  left: 50%;
-  width: 1px;
-  height: 6px;
-  background: var(--ink-dim);
-  transform: translateX(-50%);
+  left: 470px;
+  top: 160px;
+  width: 380px;
+  height: 460px;
 }
-.knob.small {
-  width: 14px;
-  height: 14px;
-}
-.knobGroup span {
-  font-size: 0.44rem;
-  letter-spacing: 0.1em;
-  color: var(--ink-dim);
-}
-.scopeReadoutLine {
-  margin-top: 0.6rem;
-  font-size: 0.56rem;
-  letter-spacing: 0.1em;
-  color: var(--red);
-  text-align: right;
-}
-
-/* ---------- ARCHIVE RECALL STAMP ---------- */
-.recallBox {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-}
-.recallArrow {
-  color: var(--ink-dim);
-  font-size: 0.8rem;
-}
-.recallSeal {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 1px solid var(--ink-dim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  color: var(--ink-mid);
-  background: radial-gradient(circle, transparent 55%, rgba(255, 255, 255, 0.05) 100%);
-}
-
-/* ---------- EVIDENCE TAG ---------- */
-.evidenceTag {
-  position: fixed;
-  bottom: 4.5rem;
-  left: 2rem;
-  z-index: 3;
-  width: 108px;
-  border: 1px solid var(--ink-dim);
-  padding: 0.6rem 0.6rem 0.5rem;
-  transform: rotate(-7deg);
-  background: rgba(255, 255, 255, 0.02);
-  opacity: 0;
-  transition: opacity 1.8s ease 1.4s;
-}
-.root.entered .evidenceTag {
-  opacity: 1;
-}
-.evidenceTag::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: 12px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1px solid var(--ink-dim);
-  background: var(--black);
-}
-.evidenceHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.56rem;
-  letter-spacing: 0.1em;
-  color: var(--ink-mid);
-  margin-bottom: 0.35rem;
-}
-.evidencePills {
-  display: flex;
-  gap: 0.25rem;
-  margin-bottom: 0.35rem;
-}
-.evidencePills span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1px solid var(--ink-dim);
-}
-.evidencePills span.cap {
-  width: 14px;
-  height: 6px;
-  border-radius: 4px;
-}
-.evidenceSub {
-  font-size: 0.46rem;
-  letter-spacing: 0.08em;
-  color: var(--ink-dim);
-}
-
-/* ---------- EUPHORIA TICKET ---------- */
-.ticketTag {
-  position: fixed;
-  bottom: 4.5rem;
-  right: 2rem;
-  z-index: 3;
-  width: 116px;
-  border: 1px dashed var(--ink-dim);
-  padding: 0.6rem;
-  transform: rotate(6deg);
-  background: rgba(255, 255, 255, 0.02);
-  opacity: 0;
-  transition: opacity 1.8s ease 1.6s;
-}
-.root.entered .ticketTag {
-  opacity: 1;
-}
-.ticketHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.6rem;
-  letter-spacing: 0.1em;
-  color: var(--ink-mid);
-}
-.ticketFace {
-  font-size: 0.75rem;
-  color: var(--ink-dim);
-}
-.ticketSub {
-  margin-top: 0.4rem;
-  font-size: 0.46rem;
-  letter-spacing: 0.08em;
-  color: var(--ink-dim);
-}
-
-/* ---------- CHEM DIAGRAM ---------- */
-.chemDiagram {
-  position: fixed;
-  bottom: 1rem;
-  right: 2.2rem;
-  z-index: 3;
-  width: 130px;
-  opacity: 0;
-  transition: opacity 1.8s ease 1.8s;
-}
-.root.entered .chemDiagram {
-  opacity: 0.85;
-}
-.chemDiagram svg {
-  width: 100%;
-  height: auto;
-  stroke: var(--ink-dim);
-  stroke-width: 1;
-  fill: none;
-}
-.chemDiagram text {
-  font-family: var(--font-mono);
-  font-size: 5px;
-  fill: var(--ink-dim);
-  stroke: none;
-}
-
-/* ---------- ORBIT TEXT ---------- */
-.orbitSvg {
+.pillCanvas {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
 }
-.orbitText {
+
+.wordList {
+  position: absolute;
+  left: 862px;
+  top: 330px;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  font-size: 20px;
+  letter-spacing: 0.38em;
+  color: var(--ink);
+}
+.wordDots {
+  letter-spacing: 0.6em;
+}
+
+/* ---------- HOLDING PATTERN ---------- */
+.holdingWrap {
+  position: absolute;
+  left: 660px;
+  top: 745px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.holdingLabel {
+  font-size: 19px;
+  letter-spacing: 0.35em;
+  color: var(--ink);
+}
+.holdingTrack {
+  position: relative;
+  width: 300px;
+  height: 10px;
+}
+.holdingDots {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 2px dotted rgba(240, 238, 230, 0.55);
+}
+.holdingMarker {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  background: var(--ink);
+  transform: translateX(-50%);
+  transition: left 0.6s ease;
+}
+
+/* ---------- SCOPE ---------- */
+.scopeWrap {
+  position: absolute;
+  left: 1010px;
+  top: 78px;
+  width: 560px;
+}
+.scopeSvg {
+  width: 100%;
+  height: auto;
+}
+.scopeBody {
+  fill: rgba(240, 238, 230, 0.02);
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+.scopeBodyInner {
+  fill: none;
+  stroke: rgba(240, 238, 230, 0.3);
+  stroke-width: 0.8;
+}
+.scopeBezel {
+  fill: rgba(240, 238, 230, 0.03);
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+.scopeScreen {
+  fill: #030303;
+  stroke: rgba(240, 238, 230, 0.5);
+  stroke-width: 1;
+}
+.scopeGrid line {
+  stroke: rgba(240, 238, 230, 0.1);
+  stroke-width: 0.7;
+}
+.scopeText {
+  font-size: 13px;
+  fill: var(--ink-mid);
+  font-family: inherit;
+  letter-spacing: 0.06em;
+}
+.scopeTextRed {
+  font-size: 13px;
+  fill: var(--red);
+  font-family: inherit;
+  letter-spacing: 0.08em;
+}
+.scopeTiny {
   font-size: 9.5px;
-  letter-spacing: 0.03em;
+  fill: var(--ink-dim);
+  font-family: inherit;
+  letter-spacing: 0.05em;
+}
+.scopeLabel {
+  font-size: 11px;
+  fill: var(--ink-mid);
+  font-family: inherit;
+  letter-spacing: 0.1em;
+}
+.scopeLabelBig {
+  font-size: 14px;
+  fill: var(--ink);
+  font-family: inherit;
+  letter-spacing: 0.1em;
+}
+.scopeDivider {
+  stroke: rgba(240, 238, 230, 0.35);
+  stroke-width: 1;
+}
+.scopeTrace {
+  stroke: var(--red);
+  stroke-width: 1.8;
+  fill: none;
+}
+.scopeTraceGlow {
+  stroke: var(--red-dim);
+  stroke-width: 5;
+  fill: none;
+  filter: blur(3px);
+}
+.knob circle {
+  fill: rgba(240, 238, 230, 0.02);
+  stroke: var(--ink-mid);
+  stroke-width: 1.3;
+}
+.knob line {
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+}
+.knob .knobPointer {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+.scopeLed {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+}
+.scopeLed.on {
+  fill: var(--red);
+  stroke: var(--red);
+}
+.scopeBtn {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+}
+.scopeBtn.on {
+  stroke: var(--red);
+}
+
+/* ---------- ARCHIVE RECALL ---------- */
+.recallPos {
+  position: absolute;
+  left: 1330px;
+  top: 545px;
+  width: 200px;
+}
+.recallWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.recallLabel {
+  font-size: 17px;
+  letter-spacing: 0.28em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.recallArrowSvg {
+  width: 18px;
+  height: 40px;
+}
+.recallArrowSvg line,
+.recallArrowSvg polyline {
+  stroke: var(--ink-mid);
+  stroke-width: 1.6;
+}
+.recallSeal {
+  width: 72px;
+  height: 72px;
+  border: 1.5px dashed var(--ink-mid);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.recallSeal span {
+  width: 44px;
+  height: 44px;
+  border: 1.4px solid var(--ink);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+/* ---------- TAGS / EXTRAS ---------- */
+.evidencePos {
+  position: absolute;
+  left: 44px;
+  top: 770px;
+  width: 200px;
+  transform: rotate(-5deg);
+}
+.evidenceSvg {
+  width: 100%;
+  height: auto;
+}
+.ticketPos {
+  position: absolute;
+  left: 1040px;
+  top: 680px;
+  width: 175px;
+  transform: rotate(8deg);
+}
+.ticketSvg {
+  width: 100%;
+  height: auto;
+}
+.chemPos {
+  position: absolute;
+  left: 1320px;
+  top: 740px;
+  width: 230px;
+}
+.chemSvg {
+  width: 100%;
+  height: auto;
+}
+.pillsPos {
+  position: absolute;
+  left: 400px;
+  top: 810px;
+  width: 250px;
+}
+.pillsSvg {
+  width: 100%;
+  height: auto;
+}
+
+.tornEdge {
+  fill: rgba(240, 238, 230, 0.02);
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+.dashedBox {
+  fill: none;
+  stroke: var(--ink-mid);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+.tagTitle {
+  font-size: 19px;
+  fill: var(--ink);
+  font-family: inherit;
+  letter-spacing: 0.12em;
+}
+.tagHatch {
+  font-size: 16px;
+  fill: var(--ink-mid);
+  font-family: inherit;
+  letter-spacing: 0.1em;
+}
+.tagLine {
+  stroke: var(--ink-dim);
+  stroke-width: 1.6;
+}
+.tagWarn {
+  fill: none;
+  stroke: var(--ink-mid);
+  stroke-width: 1.4;
+}
+.tagWarnMark {
+  font-size: 10px;
+  fill: var(--ink-mid);
+  font-family: inherit;
+}
+.ticketArc {
+  font-size: 26px;
+  fill: var(--ink);
+  font-family: inherit;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+.smiley {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+.smileyDot {
+  fill: var(--ink);
+}
+.smileyMouth {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+.barcode {
   fill: var(--ink-mid);
 }
 
-/* ---------- FOOTER ---------- */
-.footerNote {
-  margin-top: 4rem;
-  max-width: 640px;
-  font-size: 0.6rem;
-  font-style: italic;
-  line-height: 1.6;
-  color: var(--ink-dim);
-  position: relative;
-  z-index: 2;
+.chemBond {
+  stroke: var(--ink-mid);
+  stroke-width: 1.3;
+}
+.chemLabel {
+  font-size: 13px;
+  fill: var(--ink-mid);
+  font-family: inherit;
 }
 
-/* ---------- SOUND TOGGLE ---------- */
+.tabletTop {
+  fill: url(#pillDots);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+.tabletSide {
+  fill: rgba(240, 238, 230, 0.04);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+.tabletScore {
+  stroke: var(--ink-mid);
+  stroke-width: 1;
+}
+.capsuleBody {
+  fill: rgba(240, 238, 230, 0.04);
+  stroke: var(--ink);
+  stroke-width: 1.3;
+}
+.capsuleHalf {
+  fill: url(#pillDots);
+  stroke: var(--ink);
+  stroke-width: 1.3;
+}
+.capsuleSeam {
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+/* ---------- SOUND TOGGLE / AUDIO ---------- */
 .soundToggle {
   position: fixed;
-  bottom: 1.4rem;
-  left: 1.6rem;
+  bottom: 1.3rem;
+  left: 1.5rem;
   z-index: 40;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
   border: 1px solid var(--ink-dim);
   color: var(--ink-mid);
   font-family: inherit;
@@ -649,7 +635,6 @@ body {
   color: var(--ink);
   border-color: var(--ink-mid);
 }
-
 .audioMount {
   position: fixed;
   width: 1px;
