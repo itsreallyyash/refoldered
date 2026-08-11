@@ -31,17 +31,19 @@ const FRAGMENTS = [
   { text: "re. fold. re. fold. re. fold.", cls: "f8" },
 ];
 
-const PILL_ASCII = `      .-""""-.
-    /   o  o   \\
-   |     __     |
-   |    (__)    |
-    \\          /
-      '-....-'`;
-
 const QUAALUDE_ASCII = ` ______________
 /              \\
 |     714      |
 \\ ____________ /`;
+
+const PILL_CAPTIONS = [
+  "stamped in the likeness of speed",
+  "euphoria, branded and unregulated",
+  "a logo pressed into the tongue",
+  "the counterfeit sacrament",
+  "history wore a different badge each night",
+  "bliss, imitation, repeat",
+];
 
 const SLOT_COUNT = 8;
 
@@ -50,6 +52,8 @@ export default function Home() {
   const [muted, setMuted] = useState(false);
   const [activeSlot, setActiveSlot] = useState(0);
   const [readout, setReadout] = useState("NO SIGNAL");
+  const [playing, setPlaying] = useState(false);
+  const [capIdx, setCapIdx] = useState(0);
 
   const playerRef = useRef(null);
   const apiReadyRef = useRef(false);
@@ -72,7 +76,7 @@ export default function Home() {
     };
   }, []);
 
-  // Idle / real-playback driven slot animation.
+  // Idle / real-playback driven slot + track animation.
   useEffect(() => {
     if (!entered) return;
     const id = setInterval(() => {
@@ -82,18 +86,29 @@ export default function Home() {
         if (idx >= 0) {
           setActiveSlot(idx % SLOT_COUNT);
           setReadout(`TRACK ${String(idx + 1).padStart(2, "0")}`);
+          setPlaying(true);
           return;
         }
         if (typeof p.getCurrentTime === "function") {
           const t = p.getCurrentTime() || 0;
           setActiveSlot(Math.floor(t / 20) % SLOT_COUNT);
-          setReadout("PLAYING");
+          setReadout("TRACK 01");
+          setPlaying(true);
           return;
         }
       }
       idleCounterRef.current = (idleCounterRef.current + 1) % SLOT_COUNT;
       setActiveSlot(idleCounterRef.current);
     }, 1500);
+    return () => clearInterval(id);
+  }, [entered]);
+
+  // Pill caption cycle.
+  useEffect(() => {
+    if (!entered) return;
+    const id = setInterval(() => {
+      setCapIdx((i) => (i + 1) % PILL_CAPTIONS.length);
+    }, 5500);
     return () => clearInterval(id);
   }, [entered]);
 
@@ -114,15 +129,21 @@ export default function Home() {
       rel: 0,
     };
 
-    const config = { playerVars, events: {
-      onReady: (e) => {
-        e.target.playVideo();
-        setReadout("PLAYING");
+    const config = {
+      playerVars,
+      events: {
+        onReady: (e) => {
+          e.target.playVideo();
+          setReadout("TRACK 01");
+          setPlaying(true);
+        },
+        onStateChange: (e) => {
+          if (!window.YT) return;
+          if (e.data === window.YT.PlayerState.PLAYING) setPlaying(true);
+          if (e.data === window.YT.PlayerState.PAUSED) setPlaying(false);
+        },
       },
-      onStateChange: (e) => {
-        if (window.YT && e.data === window.YT.PlayerState.PLAYING) setReadout("PLAYING");
-      },
-    } };
+    };
 
     if (ids.listId) {
       config.playerVars.listType = "playlist";
@@ -154,6 +175,8 @@ export default function Home() {
       setMuted(true);
     }
   }
+
+  const caption = PILL_CAPTIONS[capIdx];
 
   return (
     <div className={`root${entered ? " entered" : ""}`}>
@@ -202,36 +225,70 @@ export default function Home() {
           </div>
         ))}
 
-        <div className="exhibit exhibitA">
-          <pre>{PILL_ASCII}</pre>
-          <div className="exhibitCaption">exhibit a — unidentified tablet</div>
-        </div>
-
         <div className="exhibit exhibitB">
           <pre>{QUAALUDE_ASCII}</pre>
           <div className="exhibitCaption">exhibit b — mfr mark 714</div>
         </div>
 
-        <div className="scope">
-          <div className="scopeLabel">&#9671; signal trace &#9671;</div>
-          <div className="scopeScreen">
-            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="scopeWave">
-              <path
-                className="scopeTrack"
-                d="M0,20 C8,5 17,5 25,20 C33,35 42,35 50,20 C58,5 67,5 75,20 C83,35 92,35 100,20 C108,5 117,5 125,20 C133,35 142,35 150,20 C158,5 167,5 175,20 C183,35 192,35 200,20"
-                fill="none"
-              />
-            </svg>
+        <div className="pillZone">
+          <div className="pillStage">
+            <div className="pillCoin">
+              <div className="pillFace pillFront">
+                <svg viewBox="0 0 100 100">
+                  <circle className="mercRing" cx="50" cy="50" r="42" />
+                  <g className="mercStar">
+                    <line x1="50" y1="50" x2="50" y2="10" />
+                    <line x1="50" y1="50" x2="85" y2="70" />
+                    <line x1="50" y1="50" x2="15" y2="70" />
+                  </g>
+                </svg>
+              </div>
+              <div className="pillFace pillBack">
+                <div className="bmwDisc" />
+              </div>
+            </div>
+          </div>
+          <div className="pillCaptionWrap" key={capIdx} style={{ "--w": `${caption.length}ch` }}>
+            <span className="pillCaptionText">{caption}</span>
           </div>
         </div>
 
-        <div className="deck">
-          <div className="deckLabel">&#9671; archive player &#9671;</div>
-          <div className="slots">
-            {Array.from({ length: SLOT_COUNT }).map((_, i) => (
-              <div key={i} className={`slot${i === activeSlot ? " active" : ""}`}>
-                {i + 1}
+        <div className="scope">
+          <div className="scopeBezel">
+            <div className="scopeHeader">
+              <div className="scopeLabel">&#9671; signal trace</div>
+              <div className="scopeCh">CH1 · AC</div>
+            </div>
+            <div className="scopeScreen">
+              <div className={`scopeAmp ${playing ? "playing" : "idle"}`}>
+                <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="scopeWave">
+                  <path
+                    className="scopeTrack"
+                    d="M0,20 C8,5 17,5 25,20 C33,35 42,35 50,20 C58,5 67,5 75,20 C83,35 92,35 100,20 C108,5 117,5 125,20 C133,35 142,35 150,20 C158,5 167,5 175,20 C183,35 192,35 200,20"
+                    fill="none"
+                  />
+                </svg>
               </div>
+            </div>
+            <div className="scopeFooter">
+              <div className="scopeTrackId">{readout}</div>
+              <div className="scopeMeta">{playing ? "PLAYING" : "STANDBY"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="deckZone">
+          <div className="deckInfo">
+            <div className="deckLabel">&#9671; archive player</div>
+            <div className="deckReadout">{readout}</div>
+          </div>
+          <div className="cdRow">
+            {Array.from({ length: SLOT_COUNT }).map((_, i) => (
+              <div
+                key={i}
+                data-n={i + 1}
+                className={`cd${i === activeSlot ? " active" : ""}`}
+              />
             ))}
           </div>
           <div className="eq">
@@ -239,7 +296,6 @@ export default function Home() {
               <div key={i} className={`eqBar eqBar${i}`} />
             ))}
           </div>
-          <div className="deckReadout">{readout}</div>
         </div>
 
         <div className="scanlines" />
