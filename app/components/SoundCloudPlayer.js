@@ -2,15 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const ARTISTS = ["Aphex Twin", "Deftones", "Boards of Canada"];
-const ARTIST_URLS = {
-  "Aphex Twin": "https://soundcloud.com/aphex-twin",
-  Deftones: "https://soundcloud.com/deftones",
-  "Boards of Canada": "https://soundcloud.com/boards-of-canada",
-};
+// The SoundCloud Widget API only loads direct track/playlist ("sets") URLs —
+// a profile URL (e.g. soundcloud.com/deftones_official) silently fails to
+// load anything, which is why playback never started before.
+const TRACKS = [
+  "https://soundcloud.com/aphex-twin-official/introduction",
+  "https://soundcloud.com/boardsofcanada/the-process",
+  "https://soundcloud.com/boardsofcanada/open-the-light",
+  "https://soundcloud.com/boardsofcanada/seven-forty-seven",
+  "https://soundcloud.com/deftones_official/sets/deftones-1",
+  "https://soundcloud.com/deftones_official/sets/white-pony-2",
+  "https://soundcloud.com/deftones_official/ceremony",
+  "https://soundcloud.com/deftones_official/headup",
+  "https://soundcloud.com/deftones_official/risk",
+  "https://soundcloud.com/deftones_official/prince",
+  "https://soundcloud.com/deftones_official/ecdysis",
+];
 
 export default function SoundCloudPlayer({
   onTimeUpdate,
+  onTrackChange,
   playing,
   setPlaying,
 }) {
@@ -53,7 +64,9 @@ export default function SoundCloudPlayer({
       widget.bind(window.SC.Widget.Events.PLAY, () => {
         setPlaying(true);
         widget.getCurrentSound((sound) => {
-          setCurrentTrack(sound?.title || "Now playing");
+          const title = sound?.title || "Now playing";
+          setCurrentTrack(title);
+          onTrackChange?.(title);
         });
       });
 
@@ -83,9 +96,8 @@ export default function SoundCloudPlayer({
 
   const loadRandomTrack = () => {
     if (!widgetRef.current) return;
-    const artist = ARTISTS[Math.floor(Math.random() * ARTISTS.length)];
-    const url = ARTIST_URLS[artist];
-    console.log("Loading:", artist, url);
+    const url = TRACKS[Math.floor(Math.random() * TRACKS.length)];
+    console.log("Loading:", url);
     widgetRef.current.load(url, { show_reposts: false, auto_play: true });
   };
 
@@ -110,7 +122,7 @@ export default function SoundCloudPlayer({
         scrolling="no"
         frameBorder="no"
         allow="autoplay"
-        src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/aphex-twin&color=%23070706&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=true"
+        src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/aphex-twin-official/introduction&color=%23070706&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=true"
         style={{ display: "none" }}
       />
 

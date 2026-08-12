@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import SoundCloudPlayer from "./components/SoundCloudPlayer";
 
-const YT_URL = "https://youtube.com/playlist?list=PLFHK1y8DXCMY";
-
 const CRYPTIC = [
   "music piercing through my aorta",
   "euphoria is irreplaceable",
@@ -49,21 +47,6 @@ const ALBUMS = [
   { key: "floyd", url: "/albums/floyd" },
   { key: "lcd", url: "/albums/lcd" },
 ];
-
-function parseYouTube(url) {
-  try {
-    const u = new URL(url);
-    const listId = u.searchParams.get("list");
-    let videoId = u.searchParams.get("v");
-    if (!videoId && u.hostname.includes("youtu.be")) {
-      videoId = u.pathname.replace("/", "");
-    }
-    if (!listId && !videoId) return null;
-    return { videoId, listId };
-  } catch {
-    return null;
-  }
-}
 
 const DISCS = ["PROJECTS", "DATA_LOG", "HISTORY", "CONTACT", "RECALL", "FRAGMENTS"];
 const SLOT_COUNT = DISCS.length;
@@ -1075,7 +1058,6 @@ function ArchiveRecall() {
 /* ================= PAGE ================= */
 export default function Home() {
   const [entered, setEntered] = useState(false);
-  const [muted, setMuted] = useState(false);
   const [activeSlot, setActiveSlot] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [wavePhase, setWavePhase] = useState(0);
@@ -1084,9 +1066,6 @@ export default function Home() {
   const [vidHash, setVidHash] = useState(1);
   const [hauntTip, setHauntTip] = useState(null);
 
-  const playerRef = useRef(null);
-  const apiReadyRef = useRef(false);
-  const pendingEnterRef = useRef(false);
   const idleCounterRef = useRef(0);
 
   // poster scale-to-fit
@@ -1100,46 +1079,10 @@ export default function Home() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => {
-    if (document.getElementById("yt-iframe-api")) {
-      apiReadyRef.current = !!window.YT?.Player;
-      return;
-    }
-    const tag = document.createElement("script");
-    tag.id = "yt-iframe-api";
-    tag.src = "https://www.youtube.com/iframe_api";
-    document.body.appendChild(tag);
-    window.onYouTubeIframeAPIReady = () => {
-      apiReadyRef.current = true;
-      if (pendingEnterRef.current) createPlayer();
-    };
-  }, []);
-
+  // disc rotation: cycles idly, independent of the audio source
   useEffect(() => {
     if (!entered) return;
     const id = setInterval(() => {
-      const p = playerRef.current;
-      if (p && typeof p.getVideoData === "function") {
-        const data = p.getVideoData();
-        if (data && data.title) setTrackTitle(data.title);
-        if (data && data.video_id) {
-          let h = 0;
-          for (const ch of data.video_id) h = (h * 31 + ch.charCodeAt(0)) | 0;
-          setVidHash(Math.abs(h) || 1);
-        }
-      }
-      if (p && typeof p.getPlaylistIndex === "function") {
-        const idx = p.getPlaylistIndex();
-        if (idx >= 0) {
-          setActiveSlot(idx % SLOT_COUNT);
-          return;
-        }
-        if (typeof p.getCurrentTime === "function") {
-          const t = p.getCurrentTime() || 0;
-          setActiveSlot(Math.floor(t / 20) % SLOT_COUNT);
-          return;
-        }
-      }
       idleCounterRef.current = (idleCounterRef.current + 1) % SLOT_COUNT;
       setActiveSlot(idleCounterRef.current);
     }, 1500);
@@ -1150,105 +1093,13 @@ export default function Home() {
     if (!entered) return;
     const id = setInterval(() => {
       setWavePhase((p) => p + 1);
-      const pl = playerRef.current;
-      if (pl && typeof pl.getCurrentTime === "function") {
-        const t = pl.getCurrentTime();
-        if (typeof t === "number" && !Number.isNaN(t)) setMediaTime(t);
-      }
     }, 90);
     return () => clearInterval(id);
   }, [entered]);
 
-  function createPlayer() {
-    const ids = parseYouTube(YT_URL);
-    if (!ids || !window.YT?.Player) return;
-    const playerVars = {
-      autoplay: 1,
-      mute: 1, // autoplay requires mute in cross-origin iframes; user can click unmute
-      controls: 0,
-      playsinline: 1,
-      modestbranding: 1,
-      rel: 0,
-    };
-    const config = {
-      playerVars,
-      events: {
-        onReady: (e) => {
-          e.target.playVideo();
-          setPlaying(true);
-        },
-        onStateChange: (e) => {
-          if (!window.YT) return;
-          if (e.data === window.YT.PlayerState.PLAYING) setPlaying(true);
-          if (e.data === window.YT.PlayerState.PAUSED) setPlaying(false);
-        },
-      },
-    };
-    config.events.onError = (code) => {
-      // bad/expired playlist id — fall back to just the video
-      if (ids.listId && ids.videoId) {
-        try {
-          playerRef.current?.destroy();
-        } catch {}
-        const mount = document.getElementById("yt-player-mount-outer");
-        const inner = document.createElement("div");
-        inner.id = "yt-player-mount";
-        mount.replaceChildren(inner);
-        playerRef.current = new window.YT.Player("yt-player-mount", {
-          videoId: ids.videoId,
-          playerVars: { ...playerVars, loop: 1, playlist: ids.videoId },
-          events: {
-            onReady: (e) => {
-              e.target.playVideo();
-              setPlaying(true);
-            },
-            onStateChange: config.events.onStateChange,
-          },
-        });
-      } else if (window.location.hostname === "localhost") {
-        // localhost CORS workaround: simulate playback for UI testing
-        setPlaying(true);
-      }
-    };
-    if (ids.listId) {
-      config.playerVars.listType = "playlist";
-      config.playerVars.list = ids.listId;
-      if (ids.videoId) config.videoId = ids.videoId;
-    } else if (ids.videoId) {
-      config.videoId = ids.videoId;
-      config.playerVars.loop = 1;
-      config.playerVars.playlist = ids.videoId;
-    }
-    try {
-      playerRef.current = new window.YT.Player("yt-player-mount", config);
-      // fallback: if YouTube's postMessage fails due to CORS, onReady never fires.
-      // After 4s, assume API failure and simulate playback state for animations.
-      setTimeout(() => {
-        playerRef.current && setPlaying(true);
-      }, 4000);
-    } catch (err) {
-      // player creation failed entirely; simulate for UI
-      setPlaying(true);
-    }
-  }
-
   function enter() {
     if (entered) return;
     setEntered(true);
-    if (apiReadyRef.current) createPlayer();
-    else pendingEnterRef.current = true;
-  }
-
-  function toggleMute() {
-    const p = playerRef.current;
-    if (!p || typeof p.isMuted !== "function") return;
-    if (p.isMuted()) {
-      p.unMute();
-      setMuted(false);
-    } else {
-      p.mute();
-      setMuted(true);
-    }
   }
 
   // Scope trace, locked to real playback. YouTube's iframe exposes no raw
@@ -1402,13 +1253,15 @@ export default function Home() {
 
       <SoundCloudPlayer
         onTimeUpdate={(t) => setMediaTime(t)}
+        onTrackChange={(title) => {
+          setTrackTitle(title);
+          let h = 0;
+          for (const ch of title) h = (h * 31 + ch.charCodeAt(0)) | 0;
+          setVidHash(Math.abs(h) || 1);
+        }}
         playing={playing}
         setPlaying={setPlaying}
       />
-
-      <div className="audioMount" id="yt-player-mount-outer">
-        <div id="yt-player-mount" />
-      </div>
     </div>
   );
 }
