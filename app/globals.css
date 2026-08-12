@@ -196,7 +196,8 @@ body {
   stroke-width: 1.6;
 }
 .discOuter {
-  fill: none;
+  /* transparent (not none) so the whole disc is a hover/click target */
+  fill: transparent;
   stroke: var(--ink);
   stroke-width: 1.4;
 }
@@ -645,4 +646,86 @@ body {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
+}
+
+/* ---------- HAUNT (hover whisper) ---------- */
+.haunt {
+  cursor: help;
+  transition: filter 0.25s ease;
+}
+.haunt:hover {
+  outline: 1px dashed var(--red);
+  outline-offset: 7px;
+  filter: brightness(1.35);
+}
+svg a.haunt {
+  cursor: pointer;
+  outline: none;
+}
+svg a.haunt:hover .discOuter {
+  stroke: var(--red);
+  stroke-width: 2;
+}
+svg a.haunt:hover .albumMark {
+  filter: brightness(1.4);
+}
+.hauntTip {
+  position: fixed;
+  z-index: 60;
+  max-width: 300px;
+  background: rgba(5, 5, 4, 0.92);
+  border: 1px dashed var(--red);
+  color: var(--ink);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.5rem 0.7rem;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.hauntTip::before {
+  content: "▸ ";
+  color: var(--red);
+}
+
+/* ---------- TOWER: BeoSound details ---------- */
+.glassPanel {
+  fill: none;
+  stroke: rgba(240, 238, 230, 0.35);
+  stroke-width: 1.2;
+}
+.glassScrew {
+  fill: none;
+  stroke: rgba(240, 238, 230, 0.4);
+  stroke-width: 1;
+}
+.ledDot {
+  fill: var(--red);
+  filter: drop-shadow(0 0 3px var(--red-dim));
+}
+.readerArc {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px var(--red-dim));
+}
+.albumMark path,
+.albumMark line,
+.albumMark circle,
+.albumMark ellipse {
+  fill: none;
+  stroke: #0f0f0e;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.albumMark.filled polygon {
+  fill: #0f0f0e;
+  stroke: #0f0f0e;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.albumMark .markDot {
+  fill: #0f0f0e;
+  stroke: none;
 }

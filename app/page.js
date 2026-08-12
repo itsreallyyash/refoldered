@@ -2,7 +2,39 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const YT_URL = "https://www.youtube.com/watch?v=f0pdwd0miqs&list=PLFHK1y8DXCMY";
+const YT_URL = "https://youtube.com/playlist?list=PLFHK1y8DXCMY";
+
+const CRYPTIC = [
+  "music piercing through my aorta",
+  "euphoria is irreplaceable",
+  "the bassline remembers you",
+  "serotonin on layaway",
+  "pressed, stamped, swallowed, gone",
+  "the archive hums at 98.3",
+  "we danced until the file corrupted",
+  "your pupils, wide as compact discs",
+  "side b is a wound",
+  "the smiley never blinks",
+  "signal found in an empty warehouse",
+  "the comedown catalogues everything",
+  "chrome tongue, vinyl heart",
+  "every anthem ends in tinnitus",
+  "the prism splits what's left of us",
+  "looped until it meant nothing",
+  "802 unlabeled minutes",
+  "the changer clicks like a ribcage",
+  "static is also a memory",
+  "do not chew the archive",
+];
+
+const ALBUMS = [
+  { key: "deftones", url: "https://www.youtube.com/results?search_query=deftones+diamond+eyes+full+album" },
+  { key: "acdc", url: "https://www.youtube.com/results?search_query=ac+dc+back+in+black+full+album" },
+  { key: "aphex", url: "https://www.youtube.com/results?search_query=aphex+twin+selected+ambient+works+85-92" },
+  { key: "acid", url: "https://www.youtube.com/results?search_query=acid+house+classics+1988" },
+  { key: "floyd", url: "https://www.youtube.com/results?search_query=pink+floyd+dark+side+of+the+moon+full+album" },
+  { key: "lcd", url: "https://www.youtube.com/results?search_query=lcd+soundsystem+sound+of+silver+full+album" },
+];
 
 function parseYouTube(url) {
   try {
@@ -390,17 +422,6 @@ function SceneCanvas() {
       g.arc(cx, cy, r, 0, Math.PI * 2);
       g.fillStyle = rg;
       g.fill();
-      // dark sheen wedges give the pressed-disc sparkle
-      [40, 160, 280].forEach((deg) => {
-        const a0 = ((deg - 9) * Math.PI) / 180;
-        const a1 = ((deg + 9) * Math.PI) / 180;
-        g.beginPath();
-        g.moveTo(cx, cy);
-        g.arc(cx, cy, r, a0, a1);
-        g.closePath();
-        g.fillStyle = "rgba(10,10,10,0.8)";
-        g.fill();
-      });
       g.beginPath();
       g.arc(cx, cy, 13, 0, Math.PI * 2);
       g.fillStyle = "#060606";
@@ -538,7 +559,69 @@ function SceneCanvas() {
 }
 
 /* ================= CD TOWER ================= */
-function TowerSVG({ active }) {
+// Minimal album marks, one per disc, drawn in dark "negative" ink over the
+// bright halftone disc face — engraved-print style.
+function AlbumMark({ k, cx, cy }) {
+  switch (ALBUMS[k].key) {
+    case "deftones": // Diamond Eyes — white diamond
+      return (
+        <g className="albumMark">
+          <path d={`M ${cx},${cy - 19} L ${cx + 15},${cy} L ${cx},${cy + 19} L ${cx - 15},${cy} Z`} />
+          <line x1={cx - 15} y1={cy} x2={cx + 15} y2={cy} />
+          <line x1={cx - 7} y1={cy - 9} x2={cx + 7} y2={cy - 9} />
+        </g>
+      );
+    case "acdc": // high-voltage bolt
+      return (
+        <g className="albumMark filled">
+          <polygon
+            points={`${cx - 1},${cy - 21} ${cx + 9},${cy - 21} ${cx + 2},${cy - 5} ${cx + 11},${cy - 5} ${cx - 7},${cy + 21} ${cx - 2},${cy + 1} ${cx - 11},${cy + 1}`}
+          />
+        </g>
+      );
+    case "aphex": // the curled A
+      return (
+        <g className="albumMark">
+          <path
+            d={`M ${cx - 15},${cy + 13} Q ${cx - 19},${cy - 15} ${cx},${cy - 17} Q ${cx + 19},${cy - 15} ${cx + 15},${cy + 13}`}
+          />
+          <path d={`M ${cx - 9},${cy + 2} Q ${cx},${cy - 7} ${cx + 9},${cy + 2} Q ${cx + 2},${cy + 9} ${cx - 3},${cy + 3}`} />
+        </g>
+      );
+    case "acid": // acid house smiley
+      return (
+        <g className="albumMark">
+          <circle cx={cx} cy={cy} r="17" />
+          <circle cx={cx - 6} cy={cy - 5} r="2" className="markDot" />
+          <circle cx={cx + 6} cy={cy - 5} r="2" className="markDot" />
+          <path d={`M ${cx - 9},${cy + 4} A 10,10 0 0 0 ${cx + 9},${cy + 4}`} />
+        </g>
+      );
+    case "floyd": // the prism
+      return (
+        <g className="albumMark">
+          <path d={`M ${cx},${cy - 17} L ${cx + 17},${cy + 12} L ${cx - 17},${cy + 12} Z`} />
+          <line x1={cx - 28} y1={cy + 2} x2={cx - 7} y2={cy - 2} />
+          <line x1={cx + 6} y1={cy} x2={cx + 28} y2={cy - 8} />
+          <line x1={cx + 6} y1={cy + 2} x2={cx + 28} y2={cy + 1} />
+          <line x1={cx + 6} y1={cy + 4} x2={cx + 28} y2={cy + 10} />
+        </g>
+      );
+    default: // lcd — disco ball
+      return (
+        <g className="albumMark">
+          <circle cx={cx} cy={cy} r="17" />
+          <line x1={cx - 15} y1={cy - 8} x2={cx + 15} y2={cy - 8} />
+          <line x1={cx - 17} y1={cy} x2={cx + 17} y2={cy} />
+          <line x1={cx - 15} y1={cy + 8} x2={cx + 15} y2={cy + 8} />
+          <ellipse cx={cx} cy={cy} rx="7" ry="17" />
+          <ellipse cx={cx} cy={cy} rx="13" ry="17" />
+        </g>
+      );
+  }
+}
+
+function TowerSVG({ active, haunt }) {
   const fins = [];
   for (let k = 0; k < 43; k++) {
     const y = 46 + k * 14.6;
@@ -546,6 +629,11 @@ function TowerSVG({ active }) {
   }
   return (
     <svg className="towerSvg" viewBox="0 0 300 720">
+      {/* glass panel behind the disc strip, BeoSound-style */}
+      <rect x="88" y="44" width="204" height="656" rx="12" className="glassPanel" />
+      {[[96, 54], [284, 54], [96, 690], [284, 690]].map(([sx, sy]) => (
+        <circle key={sx + "-" + sy} cx={sx} cy={sy} r="2" className="glassScrew" />
+      ))}
       {/* side face + fins */}
       <polygon points="100,70 60,46 60,666 100,690" className="towerFace" />
       <g className="towerFins">{fins}</g>
@@ -553,19 +641,37 @@ function TowerSVG({ active }) {
       <polygon points="100,70 60,46 230,46 270,70" className="towerFace" />
       {/* front face */}
       <rect x="100" y="70" width="170" height="620" className="towerFace" />
-      {/* discs — tone comes from the halftoned scene canvas underneath */}
+      {/* status LEDs */}
+      <circle cx="110" cy="296" r="2.4" className="ledDot" />
+      <circle cx="110" cy="308" r="2.4" className="ledDot" />
+      {/* discs — tone from the halftoned scene canvas; each is a link */}
       {DISCS.map((_, k) => {
         const cy = 140 + k * 100;
         const isActive = k === active;
         return (
-          <g key={k} className={isActive ? "towerDisc active" : "towerDisc"}>
-            <circle cx="185" cy={cy} r="44" className="discOuter" />
-            <circle cx="185" cy={cy} r="15" className="discHubRing" />
-            <circle cx="185" cy={cy} r="3.2" className="discHubDot" />
-            <text x="240" y={cy + 3} className="discLabel">
-              {String(k + 1).padStart(2, "0")}
-            </text>
-          </g>
+          <a
+            key={k}
+            href={ALBUMS[k].url}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...(haunt ? haunt() : {})}
+          >
+            <g className={isActive ? "towerDisc active" : "towerDisc"}>
+              <circle cx="185" cy={cy} r="44" className="discOuter" />
+              <AlbumMark k={k} cx={185} cy={cy} />
+              <circle cx="185" cy={cy} r="11" className="discHubRing" />
+              <circle cx="185" cy={cy} r="3.2" className="discHubDot" />
+              {isActive && (
+                <path
+                  d={`M ${185 + 47 * Math.cos(-1.1)},${cy + 47 * Math.sin(-1.1)} A 47,47 0 0 1 ${185 + 47 * Math.cos(-0.2)},${cy + 47 * Math.sin(-0.2)}`}
+                  className="readerArc"
+                />
+              )}
+              <text x="240" y={cy + 3} className="discLabel">
+                {String(k + 1).padStart(2, "0")}
+              </text>
+            </g>
+          </a>
         );
       })}
       {/* feet + vents */}
@@ -846,6 +952,9 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [wavePhase, setWavePhase] = useState(0);
   const [trackTitle, setTrackTitle] = useState("");
+  const [mediaTime, setMediaTime] = useState(0);
+  const [vidHash, setVidHash] = useState(1);
+  const [hauntTip, setHauntTip] = useState(null);
 
   const playerRef = useRef(null);
   const apiReadyRef = useRef(false);
@@ -885,6 +994,11 @@ export default function Home() {
       if (p && typeof p.getVideoData === "function") {
         const data = p.getVideoData();
         if (data && data.title) setTrackTitle(data.title);
+        if (data && data.video_id) {
+          let h = 0;
+          for (const ch of data.video_id) h = (h * 31 + ch.charCodeAt(0)) | 0;
+          setVidHash(Math.abs(h) || 1);
+        }
       }
       if (p && typeof p.getPlaylistIndex === "function") {
         const idx = p.getPlaylistIndex();
@@ -906,7 +1020,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!entered) return;
-    const id = setInterval(() => setWavePhase((p) => p + 1), 90);
+    const id = setInterval(() => {
+      setWavePhase((p) => p + 1);
+      const pl = playerRef.current;
+      if (pl && typeof pl.getCurrentTime === "function") {
+        const t = pl.getCurrentTime();
+        if (typeof t === "number" && !Number.isNaN(t)) setMediaTime(t);
+      }
+    }, 90);
     return () => clearInterval(id);
   }, [entered]);
 
@@ -989,20 +1110,23 @@ export default function Home() {
     }
   }
 
-  // Scope trace. YouTube's iframe exposes no raw audio samples (cross-origin),
-  // so this is a playback-driven synthesis: a slow energy envelope plus
-  // per-spike heights hashed off the scroll position, which reads like a
-  // music waveform breathing with the track.
+  // Scope trace, locked to real playback. YouTube's iframe exposes no raw
+  // audio samples cross-origin, so the wave is synthesized FROM the player's
+  // actual clock and track id: phase = getCurrentTime(), so it freezes on
+  // pause and jumps on seek, and the energy envelope + spike heights are
+  // hashed per (track, moment) — every song gets its own evolving shape.
   const N = 140;
-  const p = wavePhase * (playing ? 0.55 : 0.08);
-  const energy = playing
-    ? Math.max(0.18, 0.62 + 0.28 * Math.sin(p * 0.9) + 0.18 * Math.sin(p * 0.37 + 1.3))
-    : 0.15;
+  const p = playing ? mediaTime * 3.4 : wavePhase * 0.08;
+  const segF = mediaTime * 1.8;
+  const segI = Math.floor(segF);
+  const eA = hash2(vidHash, segI);
+  const eB = hash2(vidHash, segI + 1);
+  const energy = playing ? 0.3 + 0.7 * (eA + (eB - eA) * (segF - segI)) : 0.15;
   let traceD = "";
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const seg = Math.floor(t * 14 + p * 1.1);
-    const hvar = 0.4 + 0.6 * hash2(seg, 7);
+    const hvar = 0.35 + 0.65 * hash2(seg + (vidHash % 997), 7);
     const spike = Math.pow(Math.abs(Math.sin(t * Math.PI * 7 + p)), 8) * 92 * hvar;
     const ripple = Math.sin(t * 46 + p * 1.6) * 4 + Math.sin(t * 13 + p * 0.7) * 5;
     const y = 260 - (spike + ripple) * energy;
@@ -1012,6 +1136,22 @@ export default function Home() {
   const vpp = playing ? (2.04 * energy + 0.4).toFixed(2) + "V" : "--.-";
   const vrms = playing ? (0.72 * energy + 0.14).toFixed(2) + "V" : "--.-";
   const freq = playing ? (98.3 + Math.sin(p * 0.7) * 1.2).toFixed(1) + "Hz" : "--.-";
+
+  // hover haunt: every element highlights and whispers a random line
+  function haunt(base = "") {
+    return {
+      className: `${base} haunt`.trim(),
+      onMouseEnter: (e) =>
+        setHauntTip({
+          x: e.clientX,
+          y: e.clientY,
+          text: CRYPTIC[Math.floor(Math.random() * CRYPTIC.length)],
+        }),
+      onMouseMove: (e) =>
+        setHauntTip((h) => (h ? { ...h, x: e.clientX, y: e.clientY } : h)),
+      onMouseLeave: () => setHauntTip(null),
+    };
+  }
   const titleShown = trackTitle
     ? trackTitle.toUpperCase().slice(0, 30) + (trackTitle.length > 30 ? "…" : "")
     : "AWAITING SIGNAL";
@@ -1042,28 +1182,28 @@ export default function Home() {
           <div className="stain stC" />
           <div className="stain stD" />
 
-          <div className="siteTitle">refoldered.com_</div>
+          <div {...haunt("siteTitle")}>refoldered.com_</div>
 
           <SceneCanvas />
 
           <div className="towerWrap">
-            <TowerSVG active={activeSlot} />
+            <TowerSVG active={activeSlot} haunt={haunt} />
           </div>
 
-          <div className="flipLabel">[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
+          <div {...haunt("flipLabel")}>[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
 
-          <div className="coinWrap">
+          <div {...haunt("coinWrap")}>
             <PillCanvas />
           </div>
 
-          <div className="wordList">
+          <div {...haunt("wordList")}>
             <div>ECSTASY</div>
             <div>EUPHORIA</div>
             <div>HISTORY</div>
             <div className="wordDots">...</div>
           </div>
 
-          <div className="scopeWrap">
+          <div {...haunt("scopeWrap")}>
             <ScopeSVG
               traceD={traceD}
               playing={playing}
@@ -1074,11 +1214,11 @@ export default function Home() {
             />
           </div>
 
-          <div className="recallPos">
+          <div {...haunt("recallPos")}>
             <ArchiveRecall />
           </div>
 
-          <div className="holdingWrap">
+          <div {...haunt("holdingWrap")}>
             <div className="holdingLabel">[&nbsp;&nbsp;HOLDING PATTERN&nbsp;&nbsp;]</div>
             <div className="holdingTrack">
               <div className="holdingDots" />
@@ -1089,23 +1229,32 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="pillsPos">
+          <div {...haunt("pillsPos")}>
             <PillsCluster />
           </div>
 
-          <div className="evidencePos">
+          <div {...haunt("evidencePos")}>
             <EvidenceTag />
           </div>
 
-          <div className="ticketPos">
+          <div {...haunt("ticketPos")}>
             <EuphoriaTicket />
           </div>
 
-          <div className="chemPos">
+          <div {...haunt("chemPos")}>
             <ChemDiagram />
           </div>
         </div>
       </div>
+
+      {hauntTip && (
+        <div
+          className="hauntTip"
+          style={{ left: hauntTip.x + 16, top: hauntTip.y + 18 }}
+        >
+          {hauntTip.text}
+        </div>
+      )}
 
       <div className="grain" />
 
