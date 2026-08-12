@@ -100,7 +100,6 @@ body {
 .wordList,
 .scopeWrap,
 .holdingWrap,
-.pillsPos,
 .flyerPos,
 .lipsPos,
 .chemPos,
@@ -485,16 +484,14 @@ body {
   width: 100%;
   height: auto;
 }
-.pillsPos {
-  position: absolute;
-  left: 356px;
-  top: 778px;
-  width: 430px;
-  height: 210px;
-}
+/* the card and its powder work across the whole sheet, so the canvas
+   spans the poster and never intercepts pointer events — the cursor is
+   tracked on window instead, leaving every other element hoverable */
 .pillsCanvas {
-  display: block;
-  cursor: none; /* the card is the cursor */
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
 }
 
 .chemBond {
