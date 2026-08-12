@@ -59,6 +59,24 @@ function q3(n) {
   return Math.round(n * 1000) / 1000;
 }
 
+/* Smooth value noise, built on hash2 with smoothstep interpolation.
+   Used for the large, slow variation that makes ink and paper look
+   uneven — mottling, fade, foxing — as opposed to per-pixel grain. */
+function vnoise(x, y, cell, seed) {
+  const gx = Math.floor(x / cell);
+  const gy = Math.floor(y / cell);
+  const fx = x / cell - gx;
+  const fy = y / cell - gy;
+  const at = (a, b) => hash2(a * 3 + seed * 9779, b * 7 + seed * 131);
+  const a = at(gx, gy);
+  const b = at(gx + 1, gy);
+  const c = at(gx, gy + 1);
+  const d = at(gx + 1, gy + 1);
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fy * fy * (3 - 2 * fy);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
 // Deterministic hash so SSR and client render the same dot fields.
 function hash2(i, j) {
   let h = (i * 374761393 + j * 668265263) | 0;
@@ -550,6 +568,195 @@ function PillCanvas() {
   return <canvas ref={canvasRef} className="pillCanvas" />;
 }
 
+/* ================= FILM OVERLAY =================
+   Sits above every other layer so the whole poster reads as one printed,
+   aged object rather than crisp vector pieces floating on black.
+
+   Two passes, because one blend mode can't do both jobs on near-black
+   art. The light pass is screen-blended: on black it shows through as
+   grain and lifts the blacks (that's the faded look), on white it does
+   almost nothing, so the ASCII stays clean. The dark pass is multiplied:
+   vignette, crease shadows and edge wear, which darken the bright
+   artwork too and give the sheet its depth. */
+function FilmOverlay() {
+  const lightRef = useRef(null);
+  const darkRef = useRef(null);
+
+  useEffect(() => {
+    const W = 1600;
+    const H = 1000;
+
+    /* ---- light pass: grain, dust, scratches, uneven fade ---- */
+    const lc = lightRef.current;
+    lc.width = W;
+    lc.height = H;
+    const l = lc.getContext("2d");
+    l.fillStyle = "#000";
+    l.fillRect(0, 0, W, H);
+
+    // grain rendered at half res and scaled up, so the speckle has the
+    // chunk of real film rather than looking like digital noise
+    const GW = W / 2;
+    const GH = H / 2;
+    const grain = document.createElement("canvas");
+    grain.width = GW;
+    grain.height = GH;
+    const gctx = grain.getContext("2d");
+    const id = gctx.createImageData(GW, GH);
+    const d = id.data;
+    let s = 0x2f6e2b1 >>> 0;
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW; x++) {
+        // xorshift: fast enough to run over the whole sheet
+        s ^= s << 13;
+        s >>>= 0;
+        s ^= s >> 17;
+        s ^= s << 5;
+        s >>>= 0;
+        const n = (s & 255) / 255;
+        // uneven fade: broad blotches where the ink sat lighter
+        const mottle = vnoise(x, y, 90, 3) * 0.6 + vnoise(x, y, 260, 5) * 0.4;
+        const v = Math.max(0, n * 26 + mottle * 20 - 6);
+        const i = (y * GW + x) * 4;
+        d[i] = v * 1.02;
+        d[i + 1] = v;
+        d[i + 2] = v * 0.94; // a hair warm, like aged stock
+        d[i + 3] = 255;
+      }
+    }
+    gctx.putImageData(id, 0, 0);
+    l.drawImage(grain, 0, 0, W, H);
+
+    // dust specks and short hairs caught in the scan
+    for (let k = 0; k < 900; k++) {
+      const x = hash2(k, 11) * W;
+      const y = hash2(k, 13) * H;
+      const v = 40 + hash2(k, 17) * 90;
+      l.fillStyle = `rgb(${v},${v},${v})`;
+      l.beginPath();
+      l.arc(x, y, 0.3 + hash2(k, 19) * 1.1, 0, Math.PI * 2);
+      l.fill();
+    }
+    for (let k = 0; k < 40; k++) {
+      const x = hash2(k, 23) * W;
+      const y = hash2(k, 29) * H;
+      const len = 6 + hash2(k, 31) * 26;
+      const a = hash2(k, 37) * Math.PI * 2;
+      l.strokeStyle = `rgba(${70 + hash2(k, 41) * 70},${70},${66},0.55)`;
+      l.lineWidth = 0.5;
+      l.beginPath();
+      l.moveTo(x, y);
+      l.quadraticCurveTo(
+        x + Math.cos(a) * len * 0.5 + 6,
+        y + Math.sin(a) * len * 0.5,
+        x + Math.cos(a) * len,
+        y + Math.sin(a) * len
+      );
+      l.stroke();
+    }
+    // vertical emulsion scratches, broken along their length
+    for (let k = 0; k < 16; k++) {
+      const x = hash2(k, 43) * W;
+      const y0 = hash2(k, 47) * H * 0.6;
+      const len = 90 + hash2(k, 53) * 620;
+      l.strokeStyle = `rgba(${90 + hash2(k, 59) * 80},${86},${80},0.5)`;
+      l.lineWidth = 0.4 + hash2(k, 61) * 0.7;
+      for (let y = y0; y < y0 + len; y += 4) {
+        if (hash2(Math.floor(y), k) > 0.72) continue;
+        l.beginPath();
+        l.moveTo(x + Math.sin(y * 0.02) * 1.2, y);
+        l.lineTo(x + Math.sin((y + 4) * 0.02) * 1.2, y + 4);
+        l.stroke();
+      }
+    }
+    // the raised side of each crease catches the light
+    [
+      [-60, 240, 1680, 150],
+      [-60, 700, 1680, 830],
+      [380, -40, 250, 1040],
+      [1180, -40, 1330, 1040],
+    ].forEach(([x1, y1, x2, y2], i) => {
+      const gr = l.createLinearGradient(x1, y1, x2, y2);
+      gr.addColorStop(0, "rgba(0,0,0,0)");
+      gr.addColorStop(0.45, `rgba(150,146,138,${0.3 + i * 0.05})`);
+      gr.addColorStop(1, "rgba(0,0,0,0)");
+      l.strokeStyle = gr;
+      l.lineWidth = 1;
+      l.beginPath();
+      l.moveTo(x1, y1);
+      l.lineTo(x2, y2);
+      l.stroke();
+    });
+
+    /* ---- dark pass: vignette, crease shadows, edge wear ---- */
+    const dc = darkRef.current;
+    dc.width = W;
+    dc.height = H;
+    const k2 = dc.getContext("2d");
+    k2.fillStyle = "#fff";
+    k2.fillRect(0, 0, W, H);
+
+    // vignette
+    const vg = k2.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, H * 0.95);
+    vg.addColorStop(0, "rgba(255,255,255,1)");
+    vg.addColorStop(0.62, "rgba(190,188,182,1)");
+    vg.addColorStop(1, "rgba(96,94,90,1)");
+    k2.fillStyle = vg;
+    k2.fillRect(0, 0, W, H);
+
+    // broad tonal unevenness, like the sheet dried unevenly
+    for (let y = 0; y < H; y += 4) {
+      for (let x = 0; x < W; x += 4) {
+        const n = vnoise(x, y, 150, 9);
+        if (n > 0.62) {
+          k2.fillStyle = `rgba(150,146,140,${(n - 0.62) * 0.5})`;
+          k2.fillRect(x, y, 4, 4);
+        }
+      }
+    }
+    // the sunken side of each crease throws a shadow
+    [
+      [-60, 246, 1680, 156],
+      [-60, 706, 1680, 836],
+      [386, -40, 256, 1040],
+      [1186, -40, 1336, 1040],
+    ].forEach(([x1, y1, x2, y2]) => {
+      const gr = k2.createLinearGradient(x1, y1, x2, y2);
+      gr.addColorStop(0, "rgba(255,255,255,0)");
+      gr.addColorStop(0.45, "rgba(70,68,64,0.55)");
+      gr.addColorStop(1, "rgba(255,255,255,0)");
+      k2.strokeStyle = gr;
+      k2.lineWidth = 2.2;
+      k2.beginPath();
+      k2.moveTo(x1, y1);
+      k2.lineTo(x2, y2);
+      k2.stroke();
+    });
+    // worn, dirtied edges
+    for (let k = 0; k < 2600; k++) {
+      const edge = Math.floor(hash2(k, 67) * 4);
+      const t = hash2(k, 71);
+      const dep = Math.pow(hash2(k, 73), 2.4) * 90;
+      let x, y;
+      if (edge === 0) [x, y] = [t * W, dep];
+      else if (edge === 1) [x, y] = [t * W, H - dep];
+      else if (edge === 2) [x, y] = [dep, t * H];
+      else [x, y] = [W - dep, t * H];
+      k2.fillStyle = `rgba(60,58,54,${0.06 + hash2(k, 79) * 0.16})`;
+      k2.beginPath();
+      k2.arc(x, y, 1 + hash2(k, 83) * 5, 0, Math.PI * 2);
+      k2.fill();
+    }
+  }, []);
+
+  return (
+    <>
+      <canvas ref={darkRef} className="filmDark" />
+      <canvas ref={lightRef} className="filmLight" />
+    </>
+  );
+}
+
 /* ================= GROUND — paper texture + blood =================
    The page it's all printed on. A black sheet with real tooth: fibre
    grain, faint scan banding and a couple of press creases, so the black
@@ -576,20 +783,65 @@ function GroundCanvas() {
     c.fillStyle = "#000";
     c.fillRect(0, 0, W, H);
 
+    /* ---- the ink itself is uneven ----
+       Black stock printed heavy still varies: patches where it laid on
+       thicker, patches where it sank into the paper. Broad, slow noise
+       so it reads as printing rather than noise. */
+    for (let y = 0; y < H; y += 4) {
+      for (let x = 0; x < W; x += 4) {
+        const n = vnoise(x, y, 120, 2) * 0.65 + vnoise(x, y, 34, 4) * 0.35;
+        const v = Math.round(n * 15);
+        if (v <= 1) continue;
+        c.fillStyle = `rgb(${v},${Math.round(v * 0.97)},${Math.round(v * 0.9)})`;
+        c.fillRect(x, y, 4, 4);
+      }
+    }
+
     /* ---- paper tooth ---- */
     // fibre grain: short strokes at random angles, barely above black
-    for (let i = 0; i < 14000; i++) {
+    for (let i = 0; i < 26000; i++) {
       const x = hash2(i, 1) * W;
       const y = hash2(i, 2) * H;
       const a = hash2(i, 3) * Math.PI;
-      const len = 1 + hash2(i, 4) * 3;
-      const v = 6 + Math.floor(hash2(i, 5) * 13);
-      c.strokeStyle = `rgb(${v},${v},${v})`;
-      c.lineWidth = 0.6;
+      const len = 1 + hash2(i, 4) * 4;
+      const v = 8 + Math.floor(hash2(i, 5) * 20);
+      c.strokeStyle = `rgba(${v},${v},${Math.round(v * 0.92)},0.85)`;
+      c.lineWidth = 0.55;
       c.beginPath();
       c.moveTo(x, y);
       c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
       c.stroke();
+    }
+    // foxing: the brown-red age spots old stock develops
+    for (let k = 0; k < 90; k++) {
+      const x = hash2(k, 301) * W;
+      const y = hash2(k, 307) * H;
+      const r = 4 + hash2(k, 311) * 26;
+      const fg = c.createRadialGradient(x, y, 0, x, y, r);
+      fg.addColorStop(0, `rgba(48,30,18,${0.1 + hash2(k, 313) * 0.16})`);
+      fg.addColorStop(1, "rgba(48,30,18,0)");
+      c.fillStyle = fg;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+    }
+    // scuffs: places the surface has been rubbed lighter
+    for (let k = 0; k < 46; k++) {
+      const x = hash2(k, 317) * W;
+      const y = hash2(k, 331) * H;
+      const w = 20 + hash2(k, 337) * 130;
+      const h = 3 + hash2(k, 347) * 12;
+      const a = (hash2(k, 349) - 0.5) * 0.8;
+      c.save();
+      c.translate(x, y);
+      c.rotate(a);
+      const sg = c.createLinearGradient(-w / 2, 0, w / 2, 0);
+      sg.addColorStop(0, "rgba(150,146,138,0)");
+      sg.addColorStop(0.5, `rgba(150,146,138,${0.05 + hash2(k, 353) * 0.09})`);
+      sg.addColorStop(1, "rgba(150,146,138,0)");
+      c.fillStyle = sg;
+      c.fillRect(-w / 2, -h / 2, w, h);
+      c.restore();
     }
     // scan banding
     for (let y = 0; y < H; y += 3) {
@@ -597,23 +849,6 @@ function GroundCanvas() {
       c.fillStyle = `rgba(${v * 3},${v * 3},${v * 3},0.5)`;
       c.fillRect(0, y, W, 1);
     }
-    // press creases: long faint diagonals
-    [
-      [-40, 300, 1700, 190],
-      [-40, 760, 1700, 880],
-      [420, -30, 300, 1030],
-    ].forEach(([x1, y1, x2, y2], i) => {
-      const lgc = c.createLinearGradient(x1, y1, x2, y2);
-      lgc.addColorStop(0, "rgba(255,255,255,0)");
-      lgc.addColorStop(0.5, `rgba(255,255,255,${0.035 + i * 0.008})`);
-      lgc.addColorStop(1, "rgba(255,255,255,0)");
-      c.strokeStyle = lgc;
-      c.lineWidth = 1.2;
-      c.beginPath();
-      c.moveTo(x1, y1);
-      c.lineTo(x2, y2);
-      c.stroke();
-    });
 
     /* ---- blood ---- */
     const DEEP = [
@@ -1691,11 +1926,9 @@ function AsciiLips() {
     const canvas = ref.current;
     if (!canvas) return;
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    // the print is drawn at source scale, then typed on a fine grid and
-    // laid out larger — a coarse cell can't hold the cupid's bow
-    const SW = 210;
-    const SH = 150;
-    const SCALE = 1.34;
+    const SW = 220;
+    const SH = 160;
+    const SCALE = 1.36;
     const W = Math.round(SW * SCALE);
     const H = Math.round(SH * SCALE);
     canvas.width = W * DPR;
@@ -1706,170 +1939,149 @@ function AsciiLips() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // ---- grayscale kiss print ----
-    const off = document.createElement("canvas");
-    off.width = SW;
-    off.height = SH;
-    const g = off.getContext("2d");
-
-    /* Anatomy, not a blob. Corners taper to sharp points; the upper lip
-       carries a real cupid's bow (twin peaks either side of a philtrum
-       dip); the lower is fuller and rounder with a soft centre pillow.
-       The mouth line bows down to the middle rather than running flat. */
-    const L = 10; // left corner
-    const R = 200; // right corner
-    const MY = 74; // corner height
-    // mouth line: dips below the corners, deepest at centre
-    const mouthY = (x) => {
+    /* ---- the two lip shapes, as flat blocks of pigment ----
+       A stain is not a lit object: there is no gloss, no shading, only
+       pigment that did or didn't transfer. So the shapes are filled flat
+       and all the character comes from how the coverage breaks up. */
+    const L = 24; // corners pulled in and sharpened
+    const R = 196;
+    const CXm = 110;
+    const MY = 80;
+    // the parted mouth: a clear gap where no pigment lands
+    const mouthTop = (x) => {
       const t = (x - L) / (R - L);
-      return MY + Math.sin(t * Math.PI) * 9;
+      return MY + Math.sin(t * Math.PI) * 9 - 5.5;
     };
-    const mouthPath = (path) => {
-      path.moveTo(L, MY);
-      path.bezierCurveTo(52, MY + 13, 158, MY + 13, R, MY);
+    const mouthBot = (x) => {
+      const t = (x - L) / (R - L);
+      return MY + Math.sin(t * Math.PI) * 9 + 5.5;
     };
 
+    // Upper lip: control points sit close to each corner so the curve
+    // leaves at a shallow angle and the corner comes to a point.
     const upper = new Path2D();
-    // start at the sharp left corner, rise to the left peak
     upper.moveTo(L, MY);
-    upper.bezierCurveTo(34, 52, 66, 34, 86, 36); // left peak of the bow
-    upper.quadraticCurveTo(105, 51, 124, 36); // philtrum dip, then right peak
-    upper.bezierCurveTo(144, 34, 176, 52, R, MY);
-    // back along the mouth line
-    upper.bezierCurveTo(158, MY + 13, 52, MY + 13, L, MY);
+    upper.bezierCurveTo(30, 66, 62, 30, 88, 32); // left peak of the bow
+    upper.quadraticCurveTo(110, 56, 132, 32); // philtrum dip, then right peak
+    upper.bezierCurveTo(158, 30, 190, 66, R, MY);
+    upper.bezierCurveTo(164, MY + 6, 56, MY + 6, L, MY);
     upper.closePath();
 
+    // Lower lip: fuller, widest just below the mouth line.
     const lower = new Path2D();
     lower.moveTo(L, MY);
-    lower.bezierCurveTo(52, MY + 13, 158, MY + 13, R, MY);
-    // full, round underside, widest just past centre
-    lower.bezierCurveTo(182, 116, 148, 142, 105, 142);
-    lower.bezierCurveTo(62, 142, 28, 116, L, MY);
+    lower.bezierCurveTo(56, MY + 12, 164, MY + 12, R, MY);
+    lower.bezierCurveTo(186, 126, 150, 152, 110, 152);
+    lower.bezierCurveTo(70, 152, 34, 126, L, MY);
     lower.closePath();
 
-    // upper lip sits in shadow, lit from above
-    let lg = g.createLinearGradient(0, 32, 0, MY + 14);
-    lg.addColorStop(0, "#8e8e8e");
-    lg.addColorStop(0.45, "#bdbdbd");
-    lg.addColorStop(1, "#5a5a5a");
-    g.fillStyle = lg;
-    g.fill(upper);
-    // lower lip is fuller and catches the light band across its belly
-    lg = g.createLinearGradient(0, MY, 0, 144);
-    lg.addColorStop(0, "#6f6f6f");
-    lg.addColorStop(0.34, "#f0f0f0"); // gloss band
-    lg.addColorStop(0.62, "#a8a8a8");
-    lg.addColorStop(1, "#4e4e4e");
-    g.fillStyle = lg;
-    g.fill(lower);
+    // Blurred copy of the shapes: its alpha is a cheap stand-in for
+    // "how far inside the lip am I", which is exactly how hard the lip
+    // pressed — full in the belly, feathering out at the rim.
+    const soft = document.createElement("canvas");
+    soft.width = SW;
+    soft.height = SH;
+    const sc = soft.getContext("2d");
+    sc.filter = "blur(6px)";
+    sc.fillStyle = "#fff";
+    sc.fill(upper);
+    sc.fill(lower);
+    sc.filter = "none";
+    const softData = sc.getImageData(0, 0, SW, SH).data;
 
-    g.save();
-    const both = new Path2D();
-    both.addPath(upper);
-    both.addPath(lower);
-    g.clip(both);
+    // Hard mask, so pigment never strays outside the lip outline.
+    const mask = document.createElement("canvas");
+    mask.width = SW;
+    mask.height = SH;
+    const mc = mask.getContext("2d");
+    mc.fillStyle = "#fff";
+    mc.fill(upper);
+    mc.fill(lower);
+    // carve the mouth line out — the lips part there, so no ink lands
+    mc.globalCompositeOperation = "destination-out";
+    mc.beginPath();
+    mc.moveTo(L, mouthTop(L));
+    for (let x = L; x <= R; x += 4) mc.lineTo(x, mouthTop(x));
+    for (let x = R; x >= L; x -= 4) mc.lineTo(x, mouthBot(x));
+    mc.closePath();
+    mc.fill();
+    mc.globalCompositeOperation = "source-over";
+    const maskData = mc.getImageData(0, 0, SW, SH).data;
 
-    // specular highlight on the lower lip, offset left of centre
-    const spec = g.createRadialGradient(88, 104, 2, 88, 104, 42);
-    spec.addColorStop(0, "rgba(255,255,255,0.85)");
-    spec.addColorStop(1, "rgba(255,255,255,0)");
-    g.fillStyle = spec;
-    g.beginPath();
-    g.ellipse(88, 104, 42, 15, -0.12, 0, Math.PI * 2);
-    g.fill();
-    // smaller catchlight on the upper lip's right peak
-    const spec2 = g.createRadialGradient(132, 50, 1, 132, 50, 20);
-    spec2.addColorStop(0, "rgba(255,255,255,0.5)");
-    spec2.addColorStop(1, "rgba(255,255,255,0)");
-    g.fillStyle = spec2;
-    g.beginPath();
-    g.ellipse(132, 50, 20, 8, -0.2, 0, Math.PI * 2);
-    g.fill();
-
-    // vertical creases, denser and finer toward the corners, splaying
-    // away from the mouth line like real lip texture
-    for (let k = 0; k <= 46; k++) {
-      const t = k / 46;
-      const x = L + 4 + t * (R - L - 8);
-      const bow = Math.sin(t * Math.PI); // longest at the centre
-      const my = mouthY(x);
-      const lean = (t - 0.5) * 26; // creases fan outward
-      g.strokeStyle = `rgba(0,0,0,${0.3 + hash2(k, 5) * 0.35})`;
-      g.lineWidth = 0.6 + hash2(k, 7) * 0.8;
-      g.beginPath();
-      g.moveTo(x, my - 2);
-      g.lineTo(x + lean * 0.22, my - 5 - bow * (16 + hash2(k, 9) * 12));
-      g.stroke();
-      g.beginPath();
-      g.moveTo(x, my + 2);
-      g.lineTo(x + lean * 0.42, my + 7 + bow * (24 + hash2(k, 13) * 16));
-      g.stroke();
-    }
-
-    // the mouth line itself, thinning to nothing at the sharp corners
-    for (let k = 0; k < 60; k++) {
-      const t = k / 60;
-      const x = L + t * (R - L);
-      const taper = Math.sin(t * Math.PI);
-      g.strokeStyle = `rgba(0,0,0,${0.5 + taper * 0.45})`;
-      g.lineWidth = 0.6 + taper * 3;
-      g.beginPath();
-      g.moveTo(x, mouthY(x));
-      g.lineTo(x + (R - L) / 60 + 0.6, mouthY(x + (R - L) / 60));
-      g.stroke();
-    }
-    g.restore();
-    // kiss-print stipple: press marks knocked out of the pigment
-    g.globalCompositeOperation = "destination-out";
-    for (let k = 0; k < 300; k++) {
-      const x = 8 + hash2(k, 3) * 194;
-      const y = 30 + hash2(k, 7) * 116;
-      g.beginPath();
-      g.arc(x, y, 0.4 + hash2(k, 11) * 1.3, 0, Math.PI * 2);
-      g.fill();
-    }
-    g.globalCompositeOperation = "source-over";
-
-    // ---- type it ----
-    const img = g.getImageData(0, 0, SW, SH).data;
+    /* ---- type the stain ---- */
     const RAMP = " .:-=+*#%@";
-    // the slit: a cut opening across the lower lip
-    const A = [92, 92];
-    const B = [138, 130];
+    // the slit cut across the lower lip
+    const A = [96, 96];
+    const B = [142, 134];
     const distToCut = (x, y) => {
       const vx = B[0] - A[0];
       const vy = B[1] - A[1];
       const t = Math.max(0, Math.min(1, ((x - A[0]) * vx + (y - A[1]) * vy) / (vx * vx + vy * vy)));
-      const px = A[0] + vx * t;
-      const py = A[1] + vy * t;
-      return Math.hypot(x - px, y - py);
+      return Math.hypot(x - (A[0] + vx * t), y - (A[1] + vy * t));
     };
 
-    const cell = 3; // source px per character
-    ctx.font = `700 ${(cell * SCALE * 1.6).toFixed(1)}px ui-monospace, Menlo, monospace`;
+    const cell = 2.6;
+    ctx.font = `700 ${(cell * SCALE * 1.7).toFixed(1)}px ui-monospace, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+
     for (let y = 0; y < SH; y += cell) {
       for (let x = 0; x < SW; x += cell) {
-        const i = (y * SW + x) * 4;
-        if (img[i + 3] < 40) continue;
-        const lum = img[i];
-        const ci = Math.min(RAMP.length - 1, Math.floor((lum / 255) * RAMP.length));
-        const ch = RAMP[ci];
-        if (ch === " ") continue;
+        const xi = Math.round(x);
+        const yi = Math.round(y);
+        const i = (yi * SW + xi) * 4;
+        if (maskData[i + 3] < 100) continue;
+
+        // base coverage: how hard the lip pressed here
+        let cov = softData[i + 3] / 255;
+        cov = Math.pow(cov, 0.7);
+
+        // Striations — the signature of a lipstick print: the lip's
+        // creases leave lines the pigment never reaches. They splay away
+        // from the mouth line rather than running dead vertical.
+        const fan = ((x - CXm) / (R - L)) * 1.5;
+        const sx = x + (y - MY) * fan;
+        const jitter = vnoise(x, y, 26, 12) * 5;
+        const phase = (sx + jitter) / 5.2;
+        const st = Math.abs(phase - Math.floor(phase) - 0.5) * 2; // 0 at gap centre
+        const striation = 0.28 + 0.72 * Math.pow(st, 0.55);
+        cov *= striation;
+
+        // blotchy transfer: some patches took, some skipped
+        const blotch = vnoise(x, y, 15, 21) * 0.55 + vnoise(x, y, 5, 33) * 0.45;
+        cov *= 0.45 + blotch * 0.85;
+
+        // ragged rim: near the edge, transfer becomes hit-and-miss
+        const edge = softData[i + 3] / 255;
+        if (edge < 0.55 && hash2(xi * 7, yi * 13) > edge * 1.7) continue;
+
+        if (cov < 0.13) continue;
+
         const px = x * SCALE;
         const py = y * SCALE;
         const d = distToCut(x, y);
-        if (d < 2) continue; // the wound itself: open, black
+        if (d < 2) continue; // the wound: open, no pigment
         if (d < 5) {
-          // cut edges bead up dark red; brighter when the kiss runs hot
           ctx.fillStyle = hot ? "#ff2210" : "#8a1410";
           ctx.fillText("#", px, py);
           continue;
         }
-        ctx.fillStyle = hot ? "#ff5a3a" : "rgba(240,238,230,0.9)";
-        ctx.fillText(ch, px, py);
+        const ci = Math.min(RAMP.length - 1, Math.max(1, Math.floor(cov * RAMP.length)));
+        ctx.fillStyle = hot
+          ? `rgba(255,${70 + cov * 60},${44 + cov * 30},${0.55 + cov * 0.45})`
+          : `rgba(240,238,230,${0.42 + cov * 0.55})`;
+        ctx.fillText(RAMP[ci], px, py);
       }
+    }
+
+    // a few flecks of pigment thrown clear of the print
+    for (let k = 0; k < 26; k++) {
+      const x = 8 + hash2(k, 91) * (SW - 16);
+      const y = 24 + hash2(k, 93) * (SH - 40);
+      const i = (Math.round(y) * SW + Math.round(x)) * 4;
+      if (maskData[i + 3] > 60) continue;
+      ctx.fillStyle = hot ? "rgba(255,90,58,0.65)" : "rgba(240,238,230,0.4)";
+      ctx.fillText(hash2(k, 97) > 0.5 ? "." : ":", x * SCALE, y * SCALE);
     }
   }, [hot]);
 
@@ -1999,17 +2211,19 @@ function ChemDiagram() {
   );
 }
 
-/* ================= PILLS — HOVER TO BREAK =================
-   Hover story: whole pills → halves → thirds → quarters → crumbs →
-   powder lines, cut by an ASCII metal Amex. Stage changes tween over
-   ~380ms instead of snapping, and once it's powder every further hover
-   flicks more of it across the desk — furthest grains first.
-   Pills keep the grayscale→halftone engraving; the powder is drawn as
-   thousands of individual grains, and the card is typed through the
-   ASCII ramp from a shaded metal render. */
+/* ================= PILLS — DRAG THE CARD TO CUT =================
+   The Amex is in your hand: it tracks the cursor, tilting with the
+   direction you drag it. Cutting is caused, not scheduled — each pill
+   keeps its own state, and only breaks down a level when the blade
+   actually passes across it at the right height. So you can chop one
+   pill to powder and leave the one beside it whole.
+
+   whole → halves → thirds → quarters → crumbs → powder, then further
+   passes drag the powder out into a line.
+
+   The pill layer is cached and only re-rendered when something changes,
+   so following the cursor at 60fps costs one blit and the card. */
 function PillsBreak() {
-  const [stage, setStage] = useState(0); // 0 whole … 5 powder
-  const [scatter, setScatter] = useState(0); // hovers past powder
   const ref = useRef(null);
 
   useEffect(() => {
@@ -2025,25 +2239,36 @@ function PillsBreak() {
     const ctx = canvas.getContext("2d");
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
+    // shade buffer (halftoned) and the cached pill layer
     const off = document.createElement("canvas");
     off.width = W;
     off.height = H;
     const g = off.getContext("2d");
+    const layer = document.createElement("canvas");
+    layer.width = W * DPR;
+    layer.height = H * DPR;
+    const lx = layer.getContext("2d");
+    lx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-    const OX = 44;
-    const OY = 16;
+    const OX = 40;
+    const OY = 14;
     const TABLETS = [
-      [OX + 50, OY + 48, 24, 10, 14],
-      [OX + 104, OY + 80, 20, 8, 12],
-      [OX + 46, OY + 96, 17, 7, 10],
-      [OX + 88, OY + 112, 14, 6, 8],
+      [OX + 46, OY + 46, 24, 10, 14],
+      [OX + 104, OY + 74, 20, 8, 12],
+      [OX + 44, OY + 96, 17, 7, 10],
+      [OX + 92, OY + 116, 14, 6, 8],
     ];
-    const CAP = { x: OX + 178, y: OY + 66, rot: (-28 * Math.PI) / 180, half: 33, r: 14 };
+    const CAP = { x: OX + 176, y: OY + 62, rot: (-28 * Math.PI) / 180, half: 33, r: 14 };
     const ink = "rgba(240,238,230,0.9)";
     const ease = (t) => 1 - Math.pow(1 - t, 3);
 
-    /* ---- the cutter: a metal Amex, shaded then typed as ASCII ---- */
-    const CW = 122; // small enough that you can watch the cut happen
+    // per-pill state: level 0..5, anim 0..1 since the last break, smear
+    const pill = TABLETS.map(() => ({ lvl: 0, anim: 1, smear: 0, cool: 0 }));
+    const cap = { lvl: 0, anim: 1, cool: 0 };
+    let dirty = true;
+
+    /* ---- the cutter ---- */
+    const CW = 122;
     const CH = 78;
     const card = document.createElement("canvas");
     card.width = CW;
@@ -2082,11 +2307,15 @@ function PillsBreak() {
     const cardImg = cg.getImageData(0, 0, CW, CH).data;
     const RAMP = " .:-=+*#%@";
 
-    const asciiCard = (x0, y0, rot, alpha) => {
+    const asciiCard = (x0, y0, rot) => {
       ctx.save();
       ctx.translate(x0, y0);
       ctx.rotate(rot);
-      ctx.globalAlpha = alpha;
+      // a whisper of shadow so it sits above the desk
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.beginPath();
+      ctx.roundRect(-CW / 2 + 4, -CH / 2 + 6, CW - 8, CH - 8, 8);
+      ctx.fill();
       ctx.font = "700 6px ui-monospace, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -2106,73 +2335,39 @@ function PillsBreak() {
       ctx.beginPath();
       ctx.roundRect(-CW / 2 + 3, -CH / 2 + 3, CW - 6, CH - 6, 8);
       ctx.stroke();
+      // the working edge, picked out brighter
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(-CW / 2 + 3, CH / 2 - 3);
+      ctx.lineTo(CW / 2 - 3, CH / 2 - 3);
+      ctx.stroke();
       ctx.restore();
     };
 
-    /* ---- shaded pieces (into g, halftoned later) ---- */
-    const wedge = (target, mode, cx, cy, rx, ry, a0, a1, gap, jit) => {
+    /* ---- pieces ---- */
+    const wedge = (t, mode, cx, cy, rx, ry, a0, a1, gap, jit) => {
       const am = (a0 + a1) / 2;
-      target.save();
-      target.translate(cx + Math.cos(am) * gap, cy + Math.sin(am) * gap * (ry / rx));
-      target.scale(1, ry / rx);
-      target.rotate(jit);
-      target.beginPath();
-      target.moveTo(0, 0);
-      target.arc(0, 0, rx, a0, a1);
-      target.closePath();
+      t.save();
+      t.translate(cx + Math.cos(am) * gap, cy + Math.sin(am) * gap * (ry / rx));
+      t.scale(1, ry / rx);
+      t.rotate(jit);
+      t.beginPath();
+      t.moveTo(0, 0);
+      t.arc(0, 0, rx, a0, a1);
+      t.closePath();
       if (mode === "shade") {
-        const tg = target.createRadialGradient(-rx / 3, -rx / 2, 1, 0, 0, rx);
+        const tg = t.createRadialGradient(-rx / 3, -rx / 2, 1, 0, 0, rx);
         tg.addColorStop(0, "#d6d6d6");
         tg.addColorStop(1, "#5e5e5e");
-        target.fillStyle = tg;
-        target.fill();
+        t.fillStyle = tg;
+        t.fill();
       } else {
-        target.strokeStyle = ink;
-        target.lineWidth = 1.1;
-        target.stroke();
+        t.strokeStyle = ink;
+        t.lineWidth = 1.1;
+        t.stroke();
       }
-      target.restore();
-    };
-
-    const capsule = (target, mode, sep, spill) => {
-      target.save();
-      target.translate(CAP.x, CAP.y);
-      target.rotate(CAP.rot);
-      const { half, r } = CAP;
-      [
-        [-half - sep, [r, 0, 0, r]],
-        [sep, [0, r, r, 0]],
-      ].forEach(([x0, radii]) => {
-        target.beginPath();
-        target.roundRect(x0, -r, half, r * 2, radii);
-        if (mode === "shade") {
-          const lg = target.createLinearGradient(0, -r, 0, r);
-          lg.addColorStop(0, "#cfcfcf");
-          lg.addColorStop(1, "#3a3a3a");
-          target.fillStyle = lg;
-          target.fill();
-        } else {
-          target.strokeStyle = ink;
-          target.lineWidth = 1.2;
-          target.stroke();
-        }
-      });
-      if (mode === "shade" && spill > 0) {
-        for (let k = 0; k < spill; k++) {
-          const lum = 130 + Math.floor(hash2(k, 91) * 100);
-          target.fillStyle = `rgb(${lum},${lum},${lum})`;
-          target.beginPath();
-          target.arc(
-            (hash2(k * 7, 5) - 0.5) * sep * 2,
-            (hash2(k * 11, 9) - 0.5) * r * 1.6,
-            0.8 + hash2(k, 13) * 1,
-            0,
-            Math.PI * 2
-          );
-          target.fill();
-        }
-      }
-      target.restore();
+      t.restore();
     };
 
     const dust = (cx, cy, spread, count, seed) => {
@@ -2187,75 +2382,82 @@ function PillsBreak() {
       }
     };
 
-    /* ---- powder: individual grains drawn crisp, no halftone ----
-       Each line is a ridge: grains cluster tightly at the spine with a
-       fine dust halo, clumps here and there, ragged ends. Scatter throws
-       grains off the spine — high-hash grains first, furthest. */
-    const LINES = [
-      [OX + 26, OY + 54, 150],
-      [OX + 20, OY + 84, 176],
-      [OX + 34, OY + 112, 158],
-    ];
-    const drawPowder = (p, sc) => {
-      const spread = sc / 10; // 0..1
-      // keep the mess on the desk: everything stays inside the pill area
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(OX - 18, OY - 6, 250, 168);
-      ctx.clip();
-      LINES.forEach(([x0, y0, len], li) => {
-        for (let gi = 0; gi < len * 4.2; gi++) {
-          const u = hash2(gi * 13 + li * 971, 3);
-          const x = x0 + u * len;
-          // taper density toward the ends of the line
-          const edge = Math.min(u, 1 - u) * 6;
-          if (hash2(gi * 7 + li * 331, 5) > Math.min(1, 0.25 + edge)) continue;
-          // gaussian-ish offset from the spine + a sparse dust halo
-          const g1 = hash2(gi * 3 + li, 11) + hash2(gi * 5 + li, 17) - 1;
-          const halo = hash2(gi * 11 + li, 23) < 0.12 ? (hash2(gi, 29) - 0.5) * 14 : 0;
-          let px = x;
-          let py = y0 + g1 * 2.6 + halo;
-          // clumps: occasional bigger crumbs sitting on the ridge
-          const clump = hash2(gi * 17 + li, 37) < 0.045;
-          let size = 0.45 + hash2(gi, 41) * 0.8 + (clump ? 1.1 : 0);
-          let alpha = 0.5 + hash2(gi, 43) * 0.5;
-          // scatter: throw this grain if its hash is under the level
-          const h = hash2(gi * 23 + li * 77, 53);
-          const df = Math.max(0, spread - h * 0.92);
-          if (df > 0) {
-            // grains skid outward along the desk, mostly sideways
-            const ang = hash2(gi * 29 + li, 59) * Math.PI * 2;
-            px += Math.cos(ang) * df * 62;
-            py += Math.sin(ang) * df * 22 + df * 6;
-            alpha *= Math.max(0.15, 1 - df * 1.1);
-            size *= Math.max(0.5, 1 - df * 0.5);
-          }
-          // settle-in when the powder stage lands
-          py -= (1 - p) * 10;
-          const lum = 175 + Math.floor(hash2(gi, 61) * 80);
-          ctx.fillStyle = `rgba(${lum},${lum},${lum},${alpha * p})`;
-          ctx.beginPath();
-          ctx.arc(px, py, size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        // heap at the head of each line
-        for (let k = 0; k < 46; k++) {
-          const a = hash2(k * 3 + li, 67) * Math.PI * 2;
-          const d = Math.pow(hash2(k * 7 + li, 71), 0.6) * 9;
-          const lum = 160 + Math.floor(hash2(k, 73) * 70);
-          ctx.fillStyle = `rgba(${lum},${lum},${lum},${0.75 * p * (1 - spread * 0.4)})`;
-          ctx.beginPath();
-          ctx.arc(x0 - 4 + Math.cos(a) * d, y0 + Math.sin(a) * d * 0.5, 0.6 + hash2(k, 79) * 1, 0, Math.PI * 2);
-          ctx.fill();
+    const capsule = (t, mode, sep, spill) => {
+      t.save();
+      t.translate(CAP.x, CAP.y);
+      t.rotate(CAP.rot);
+      const { half, r } = CAP;
+      [
+        [-half - sep, [r, 0, 0, r]],
+        [sep, [0, r, r, 0]],
+      ].forEach(([x0, radii]) => {
+        t.beginPath();
+        t.roundRect(x0, -r, half, r * 2, radii);
+        if (mode === "shade") {
+          const lg = t.createLinearGradient(0, -r, 0, r);
+          lg.addColorStop(0, "#cfcfcf");
+          lg.addColorStop(1, "#3a3a3a");
+          t.fillStyle = lg;
+          t.fill();
+        } else {
+          t.strokeStyle = ink;
+          t.lineWidth = 1.2;
+          t.stroke();
         }
       });
-      ctx.restore();
+      if (mode === "shade" && spill > 0) {
+        for (let k = 0; k < spill; k++) {
+          const lum = 130 + Math.floor(hash2(k, 91) * 100);
+          t.fillStyle = `rgb(${lum},${lum},${lum})`;
+          t.beginPath();
+          t.arc((hash2(k * 7, 5) - 0.5) * sep * 2, (hash2(k * 11, 9) - 0.5) * r * 1.6, 0.8 + hash2(k, 13) * 1, 0, Math.PI * 2);
+          t.fill();
+        }
+      }
+      t.restore();
+    };
+
+    // powder for one pill: a ridge of grains that the blade drags wider
+    const powder = (cx, cy, smear, p) => {
+      const len = 42 + smear * 96;
+      const x0 = cx - len * 0.34;
+      lx.save();
+      lx.beginPath();
+      lx.rect(OX - 24, OY - 10, 268, 176);
+      lx.clip();
+      for (let gi = 0; gi < 340 + smear * 260; gi++) {
+        const u = hash2(gi * 13 + cx, 3);
+        const x = x0 + u * len;
+        const edge = Math.min(u, 1 - u) * 6;
+        if (hash2(gi * 7 + cx, 5) > Math.min(1, 0.3 + edge)) continue;
+        const g1 = hash2(gi * 3, 11) + hash2(gi * 5, 17) - 1;
+        const halo = hash2(gi * 11, 23) < 0.11 ? (hash2(gi, 29) - 0.5) * 13 : 0;
+        const clump = hash2(gi * 17, 37) < 0.05;
+        const size = 0.45 + hash2(gi, 41) * 0.75 + (clump ? 1 : 0);
+        const alpha = (0.5 + hash2(gi, 43) * 0.5) * p;
+        const lum = 175 + Math.floor(hash2(gi, 61) * 80);
+        lx.fillStyle = `rgba(${lum},${lum},${lum},${alpha})`;
+        lx.beginPath();
+        lx.arc(x, cy + g1 * (2.4 + smear * 1.2) + halo, size, 0, Math.PI * 2);
+        lx.fill();
+      }
+      // the heap that hasn't been drawn out yet
+      for (let k = 0; k < 40; k++) {
+        const a = hash2(k * 3 + cx, 67) * Math.PI * 2;
+        const d = Math.pow(hash2(k * 7 + cx, 71), 0.6) * 8;
+        const lum = 180 + Math.floor(hash2(k, 73) * 65);
+        lx.fillStyle = `rgba(${lum},${lum},${lum},${0.7 * p * Math.max(0.25, 1 - smear * 0.5)})`;
+        lx.beginPath();
+        lx.arc(x0 - 3 + Math.cos(a) * d, cy + Math.sin(a) * d * 0.5, 0.6 + hash2(k, 79) * 1, 0, Math.PI * 2);
+        lx.fill();
+      }
+      lx.restore();
     };
 
     const halftone = () => {
       const img = g.getImageData(0, 0, W, H).data;
       const CELL = 3;
-      ctx.fillStyle = "#e8e6de";
+      lx.fillStyle = "#e8e6de";
       for (let y = 0; y < H; y += CELL) {
         for (let x = 0; x < W; x += CELL) {
           const i = (((y | 0) * W + (x | 0)) * 4) | 0;
@@ -2263,180 +2465,229 @@ function PillsBreak() {
           if (lum < 14) continue;
           const r = CELL * 0.52 * Math.pow(lum / 255, 0.85);
           if (r < 0.22) continue;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fill();
+          lx.beginPath();
+          lx.arc(x, y, r, 0, Math.PI * 2);
+          lx.fill();
         }
       }
     };
 
-    const render = (p) => {
-      ctx.clearRect(0, 0, W, H);
+    // re-draw the cached pill layer
+    const buildLayer = () => {
+      lx.clearRect(0, 0, W, H);
       g.clearRect(0, 0, W, H);
-      const e = ease(p);
 
-      /* ---- the blade's path ----
-         The card lifts off the desk, sweeps right-to-left straight
-         through the pile, then returns. Pieces only come apart once the
-         blade has actually passed over them, so the cut is caused by the
-         card rather than just happening next to it. */
-      const PARK = [W - 74, H - 52, -0.12];
-      const SS = [OX + 244, OY + 86, -0.05];
-      const SE = [OX - 30, OY + 86, -0.05];
-      const mix = (a, b, t) => [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-      ];
-      let cardPos = PARK;
-      let bladeX = Infinity; // nothing cut yet
-      if (stage >= 1) {
-        if (p < 0.18) {
-          cardPos = mix(PARK, SS, ease(p / 0.18));
-          bladeX = SS[0];
-        } else if (p < 0.82) {
-          cardPos = mix(SS, SE, (p - 0.18) / 0.64);
-          bladeX = cardPos[0];
-        } else {
-          cardPos = mix(SE, PARK, ease((p - 0.82) / 0.18));
-          bladeX = SE[0];
-        }
-      }
-      // how thoroughly the blade has gone through a piece at x
-      const cutAt = (x) => Math.max(0, Math.min(1, (x - bladeX) / 34));
-
-      const pieces = (target, mode) => {
-        if (stage === 0) {
-          TABLETS.forEach(([cx, cy, rx, ry, depth]) => {
+      const solid = (t, mode) => {
+        TABLETS.forEach(([cx, cy, rx, ry, depth], i) => {
+          const st = pill[i];
+          if (st.lvl >= 5) return;
+          const e = ease(st.anim);
+          if (st.lvl === 0) {
             if (mode === "shade") {
-              let grad = target.createLinearGradient(0, cy, 0, cy + depth + ry);
+              const grad = t.createLinearGradient(0, cy, 0, cy + depth + ry);
               grad.addColorStop(0, "#8e8e8e");
               grad.addColorStop(1, "#222222");
-              target.beginPath();
-              target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
-              target.lineTo(cx - rx, cy);
-              target.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);
-              target.closePath();
-              target.fillStyle = grad;
-              target.fill();
-              const tg = target.createRadialGradient(cx - rx / 3, cy - ry / 2, 1, cx, cy, rx);
+              t.beginPath();
+              t.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+              t.lineTo(cx - rx, cy);
+              t.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);
+              t.closePath();
+              t.fillStyle = grad;
+              t.fill();
+              const tg = t.createRadialGradient(cx - rx / 3, cy - ry / 2, 1, cx, cy, rx);
               tg.addColorStop(0, "#dcdcdc");
               tg.addColorStop(1, "#6a6a6a");
-              target.beginPath();
-              target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-              target.fillStyle = tg;
-              target.fill();
+              t.beginPath();
+              t.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+              t.fillStyle = tg;
+              t.fill();
             } else {
-              target.strokeStyle = ink;
-              target.lineWidth = 1.1;
-              target.beginPath();
-              target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-              target.stroke();
-              target.beginPath();
-              target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
-              target.stroke();
-              target.strokeStyle = "rgba(240,238,230,0.5)";
-              target.lineWidth = 1;
-              target.beginPath();
-              target.moveTo(cx - rx * 0.6, cy);
-              target.lineTo(cx + rx * 0.6, cy);
-              target.stroke();
+              t.strokeStyle = ink;
+              t.lineWidth = 1.1;
+              t.beginPath();
+              t.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+              t.stroke();
+              t.beginPath();
+              t.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+              t.stroke();
+              t.strokeStyle = "rgba(240,238,230,0.5)";
+              t.lineWidth = 1;
+              t.beginPath();
+              t.moveTo(cx - rx * 0.6, cy);
+              t.lineTo(cx + rx * 0.6, cy);
+              t.stroke();
             }
-          });
-          capsule(target, mode, 0, 0);
-        } else if (stage <= 3) {
-          const n = stage + 1;
-          TABLETS.forEach(([cx, cy, rx, ry], i) => {
-            const rot0 = hash2(i, 40 + stage) * Math.PI * 2;
-            const cut = cutAt(cx); // this tablet only splits once cut
+          } else if (st.lvl <= 3) {
+            const n = st.lvl + 1;
+            const rot0 = hash2(i, 40 + st.lvl) * Math.PI * 2;
             for (let k = 0; k < n; k++) {
               const a0 = rot0 + (k * 2 * Math.PI) / n;
               const a1 = a0 + (2 * Math.PI) / n;
-              const gapT = 4 + stage * 2.5 + hash2(i * 7 + k, stage) * 3;
-              const gap = gapT * cut;
-              const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3 * cut;
-              wedge(target, mode, cx, cy, rx, ry, a0, a1, gap, jit);
+              const gap = (4 + st.lvl * 2.5 + hash2(i * 7 + k, st.lvl) * 3) * e;
+              const jit = (hash2(i * 13 + k, st.lvl) - 0.5) * 0.3 * e;
+              wedge(t, mode, cx, cy, rx, ry, a0, a1, gap, jit);
             }
-            if (mode === "shade") dust(cx, cy, rx * 1.3 * cut, Math.round(5 * stage * cut), i);
-          });
-          capsule(
-            target,
-            mode,
-            (4 + stage * 5) * cutAt(CAP.x),
-            Math.round(stage * 9 * cutAt(CAP.x))
-          );
-        } else if (stage === 4) {
-          TABLETS.forEach(([cx, cy, rx], i) => {
-            const cut = cutAt(cx);
+            if (mode === "shade") dust(cx, cy, rx * 1.3 * e, Math.round(5 * st.lvl * e), i);
+          } else {
             for (let k = 0; k < 7; k++) {
               const a = hash2(i * 19 + k, 71) * Math.PI * 2;
-              const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1) * cut;
-              const px = cx + Math.cos(a) * d;
-              const py = cy + Math.sin(a) * d * 0.55;
+              const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1) * e;
               const s = rx * (0.16 + hash2(i + k, 77) * 0.22);
-              const rr = hash2(i * 29 + k, 79) * Math.PI * cut;
-              target.save();
-              target.translate(px, py);
-              target.rotate(rr);
-              target.beginPath();
-              target.moveTo(-s, 0);
-              target.lineTo(-s * 0.2, -s * 0.9);
-              target.lineTo(s, -s * 0.2);
-              target.lineTo(s * 0.5, s * 0.8);
-              target.closePath();
+              t.save();
+              t.translate(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.55);
+              t.rotate(hash2(i * 29 + k, 79) * Math.PI * e);
+              t.beginPath();
+              t.moveTo(-s, 0);
+              t.lineTo(-s * 0.2, -s * 0.9);
+              t.lineTo(s, -s * 0.2);
+              t.lineTo(s * 0.5, s * 0.8);
+              t.closePath();
               if (mode === "shade") {
                 const lum = 110 + Math.floor(hash2(k, i) * 110);
-                target.fillStyle = `rgb(${lum},${lum},${lum})`;
-                target.fill();
+                t.fillStyle = `rgb(${lum},${lum},${lum})`;
+                t.fill();
               } else {
-                target.strokeStyle = ink;
-                target.lineWidth = 1;
-                target.stroke();
+                t.strokeStyle = ink;
+                t.lineWidth = 1;
+                t.stroke();
               }
-              target.restore();
+              t.restore();
             }
-            if (mode === "shade") dust(cx, cy, rx * 1.6 * cut, Math.round(26 * cut), i);
-          });
-          capsule(target, mode, 26 * cutAt(CAP.x), Math.round(30 * cutAt(CAP.x)));
-        }
+            if (mode === "shade") dust(cx, cy, rx * 1.6 * e, Math.round(26 * e), i);
+          }
+        });
+        const ce = ease(cap.anim);
+        capsule(t, mode, Math.min(cap.lvl, 4) * 6 * ce, Math.round(cap.lvl * 8 * ce));
       };
 
-      if (stage < 5) {
-        pieces(g, "shade");
-        halftone();
-        pieces(ctx, "line");
-      } else {
-        drawPowder(e, scatter);
-      }
-
-      // the blade last, so it passes over the pieces it just parted
-      asciiCard(cardPos[0], cardPos[1], cardPos[2], 1);
+      solid(g, "shade");
+      halftone();
+      solid(lx, "line");
+      // powdered pills draw on top, crisp
+      TABLETS.forEach(([cx, cy], i) => {
+        const st = pill[i];
+        if (st.lvl >= 5) powder(cx, cy, st.smear, ease(st.anim));
+      });
     };
 
-    // tween the stage change
+    /* ---- input ---- */
+    const PARK = { x: W - 74, y: H - 52 };
+    const mouse = { x: PARK.x, y: PARK.y, inside: false };
+    let cardX = PARK.x;
+    let cardY = PARK.y;
+    let prevX = PARK.x;
+    let prevY = PARK.y;
+    let rot = -0.12;
+
+    const toLocal = (ev) => {
+      const r = canvas.getBoundingClientRect();
+      mouse.x = ((ev.clientX - r.left) / r.width) * W;
+      mouse.y = ((ev.clientY - r.top) / r.height) * H;
+    };
+    const onMove = (ev) => {
+      toLocal(ev);
+      mouse.inside = true;
+    };
+    const onEnter = (ev) => {
+      toLocal(ev);
+      mouse.inside = true;
+      // drop the card straight to the cursor on entry, no fly-in
+      cardX = mouse.x;
+      cardY = mouse.y;
+      prevX = cardX;
+      prevY = cardY;
+    };
+    const onLeave = () => {
+      mouse.inside = false;
+    };
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerenter", onEnter);
+    canvas.addEventListener("pointerleave", onLeave);
+
+    // did the blade sweep across this point since the last frame?
+    const crossed = (cx, cy, band) => {
+      if (Math.abs(cardY - cy) > band) return false;
+      return (prevX - cx) * (cardX - cx) < 0;
+    };
+
     let raf;
-    const t0 = performance.now();
-    const DUR = 640; // long enough to watch the blade travel
-    const tick = (now) => {
-      const p = Math.min(1, (now - t0) / DUR);
-      render(p);
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [stage, scatter]);
+    let last = 0;
+    const frame = (ts) => {
+      raf = requestAnimationFrame(frame);
+      const dt = last ? Math.min(60, ts - last) : 16;
+      last = ts;
 
-  return (
-    <canvas
-      ref={ref}
-      className="pillsCanvas"
-      onMouseEnter={() =>
-        stage < 5
-          ? setStage((s) => s + 1)
-          : setScatter((s) => Math.min(10, s + 1))
+      prevX = cardX;
+      prevY = cardY;
+      const tx = mouse.inside ? mouse.x : PARK.x;
+      const ty = mouse.inside ? mouse.y : PARK.y;
+      // a little lag, so it feels like something being dragged
+      cardX += (tx - cardX) * Math.min(1, dt * 0.022);
+      cardY += (ty - cardY) * Math.min(1, dt * 0.022);
+      // tilt into the direction of travel
+      const vx = cardX - prevX;
+      const targetRot = mouse.inside ? Math.max(-0.5, Math.min(0.5, -vx * 0.03)) : -0.12;
+      rot += (targetRot - rot) * Math.min(1, dt * 0.012);
+
+      // cutting
+      if (mouse.inside) {
+        TABLETS.forEach(([cx, cy, rx], i) => {
+          const st = pill[i];
+          st.cool -= dt;
+          if (st.cool > 0 || st.lvl >= 5 + 4) return;
+          if (!crossed(cx, cy, 40)) return;
+          st.cool = 180;
+          if (st.lvl < 5) {
+            st.lvl += 1;
+            st.anim = 0;
+          } else {
+            st.smear = Math.min(1, st.smear + 0.25);
+            st.anim = 0.999;
+          }
+          dirty = true;
+        });
+        cap.cool -= dt;
+        if (cap.cool <= 0 && cap.lvl < 4 && crossed(CAP.x, CAP.y, 40)) {
+          cap.cool = 180;
+          cap.lvl += 1;
+          cap.anim = 0;
+          dirty = true;
+        }
       }
-    />
-  );
+
+      // ease the break animations
+      pill.forEach((st) => {
+        if (st.anim < 1) {
+          st.anim = Math.min(1, st.anim + dt / 420);
+          dirty = true;
+        }
+      });
+      if (cap.anim < 1) {
+        cap.anim = Math.min(1, cap.anim + dt / 420);
+        dirty = true;
+      }
+
+      if (dirty) {
+        buildLayer();
+        dirty = false;
+      }
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(layer, 0, 0, W, H);
+      asciiCard(cardX, cardY, rot);
+    };
+
+    buildLayer();
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerenter", onEnter);
+      canvas.removeEventListener("pointerleave", onLeave);
+    };
+  }, []);
+
+  return <canvas ref={ref} className="pillsCanvas" />;
 }
 
 /* ================= PAGE ================= */
@@ -2504,17 +2755,6 @@ export default function Home() {
 
   return (
     <div className={`root${entered ? " entered" : ""}`}>
-      <svg width="0" height="0" style={{ position: "absolute" }}>
-        <defs>
-          <filter id="grainFilter">
-            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch" result="noise" seed="7">
-              <animate attributeName="seed" values="1;9;3;14;6;20;2" dur="1.4s" repeatCount="indefinite" />
-            </feTurbulence>
-            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.07 0" />
-          </filter>
-        </defs>
-      </svg>
-
       <div className="gate" onClick={enter}>
         <div className="gateGlyph">&#9678;</div>
         <div className="gateText">click to enter</div>
@@ -2578,7 +2818,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div {...haunt("pillsPos")}>
+          {/* no haunt tooltip here — it would sit over the thing you're
+              actually manipulating */}
+          <div className="pillsPos">
             <PillsBreak />
           </div>
 
@@ -2593,6 +2835,9 @@ export default function Home() {
           <div {...haunt("chemPos")}>
             <ChemDiagram />
           </div>
+
+          {/* printed, aged, and scanned — over everything above */}
+          <FilmOverlay />
         </div>
       </div>
 
@@ -2604,8 +2849,6 @@ export default function Home() {
           {hauntTip.text}
         </div>
       )}
-
-      <div className="grain" />
 
       <ArchiveAudio
         controlRef={audioCtlRef}

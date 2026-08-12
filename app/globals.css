@@ -108,21 +108,34 @@ body {
   z-index: 2;
 }
 
-/* ---------- GRAIN & GROUND ---------- */
+/* ---------- GROUND & FILM ---------- */
 .groundCanvas {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
 }
-.grain {
-  position: fixed;
-  inset: -4px;
-  filter: url(#grainFilter);
-  opacity: 0.2; /* the paper tooth lives on the ground canvas now */
-  mix-blend-mode: screen;
+/* Both film passes sit above every other layer. Screen shows the grain
+   through the blacks and lifts them (the faded look) while leaving the
+   white ASCII alone; multiply lays the vignette and crease shadows over
+   everything, artwork included, so the sheet reads as one object. */
+.filmDark,
+.filmLight {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  z-index: 30;
+}
+.filmDark {
+  z-index: 20;
+  mix-blend-mode: multiply;
+  opacity: 0.9;
+}
+.filmLight {
+  z-index: 21;
+  mix-blend-mode: screen;
+  opacity: 0.85;
 }
 
 /* ---------- HEADER ---------- */
@@ -481,6 +494,7 @@ body {
 }
 .pillsCanvas {
   display: block;
+  cursor: none; /* the card is the cursor */
 }
 
 .chemBond {
