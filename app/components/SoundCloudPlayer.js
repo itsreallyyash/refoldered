@@ -101,16 +101,10 @@ export default function SoundCloudPlayer({
     widgetRef.current.load(url, { show_reposts: false, auto_play: true });
   };
 
-  const handlePlayPause = () => {
-    if (!widgetRef.current) {
-      console.error("Widget not initialized");
-      return;
-    }
-    if (playing) {
-      widgetRef.current.pause();
-    } else {
-      widgetRef.current.play();
-    }
+  // play-only: once the archive is playing there is no stopping it
+  const handlePlay = () => {
+    if (!widgetRef.current || playing) return;
+    widgetRef.current.play();
   };
 
   return (
@@ -132,37 +126,39 @@ export default function SoundCloudPlayer({
           bottom: "20px",
           right: "20px",
           color: "#f0eee6",
-          fontFamily: "IBM Plex Mono",
-          fontSize: "12px",
+          fontFamily: "inherit",
+          fontSize: "11px",
+          letterSpacing: "0.12em",
           zIndex: 50,
-          background: "rgba(7, 7, 6, 0.9)",
-          padding: "12px",
-          border: "1px dashed #d43d2a",
-          borderRadius: "4px",
+          background: "rgba(7, 7, 6, 0.85)",
+          padding: "9px 12px",
+          border: "1px dashed rgba(212, 61, 42, 0.55)",
+          maxWidth: "230px",
         }}
       >
-        {currentTrack && (
-          <div style={{ marginBottom: "10px", maxWidth: "180px" }}>
-            <div style={{ opacity: 0.8, wordBreak: "break-word" }}>
-              {currentTrack.slice(0, 40)}
-              {currentTrack.length > 40 ? "..." : ""}
-            </div>
+        {playing ? (
+          <div style={{ opacity: 0.85, wordBreak: "break-word", textTransform: "uppercase" }}>
+            <span style={{ color: "#d43d2a" }}>▸ </span>
+            {currentTrack.slice(0, 40)}
+            {currentTrack.length > 40 ? "…" : ""}
           </div>
+        ) : (
+          <button
+            onClick={handlePlay}
+            style={{
+              padding: "8px 14px",
+              background: "transparent",
+              color: "#f0eee6",
+              border: "1px solid #f0eee6",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "11px",
+              letterSpacing: "0.2em",
+            }}
+          >
+            PLAY
+          </button>
         )}
-        <button
-          onClick={handlePlayPause}
-          style={{
-            padding: "8px 12px",
-            background: playing ? "#d43d2a" : "transparent",
-            color: "#f0eee6",
-            border: "1px solid #f0eee6",
-            cursor: "pointer",
-            fontFamily: "IBM Plex Mono",
-            fontSize: "11px",
-          }}
-        >
-          {playing ? "PAUSE" : "PLAY"}
-        </button>
       </div>
     </>
   );

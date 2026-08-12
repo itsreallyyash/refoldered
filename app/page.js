@@ -59,12 +59,77 @@ function hash2(i, j) {
   return (h >>> 0) / 4294967295;
 }
 
-/* ================= ROTATING COIN =================
+/* ---- ASCII globe data: 72×36 land mask (5° cells), rows from 90N→90S.
+   Each row lists [startCol, endCol] land runs; coarse, but at ASCII
+   resolution it reads unmistakably as Earth. ---- */
+const LAND_ROWS = [
+  [],
+  [[14, 20], [24, 31]],
+  [[12, 21], [23, 30], [39, 40], [50, 52], [60, 62]],
+  [[10, 22], [24, 30], [40, 41], [43, 71]],
+  [[3, 8], [9, 21], [25, 29], [32, 33], [38, 42], [43, 71]],
+  [[2, 8], [9, 20], [26, 28], [37, 42], [43, 70]],
+  [[9, 16], [19, 21], [34, 35], [38, 40], [41, 70]],
+  [[10, 21], [33, 35], [36, 44], [45, 66], [68, 68]],
+  [[10, 22], [34, 65]],
+  [[10, 21], [33, 64]],
+  [[10, 20], [33, 35], [37, 40], [41, 50], [52, 63], [64, 65]],
+  [[12, 19], [33, 62], [63, 63]],
+  [[11, 15], [17, 18], [32, 61]],
+  [[11, 15], [16, 18], [31, 45], [46, 48], [50, 55], [56, 60], [61, 61]],
+  [[13, 16], [18, 19], [31, 44], [46, 49], [51, 54], [55, 60], [61, 61]],
+  [[15, 16], [19, 22], [31, 42], [44, 48], [51, 53], [55, 58], [61, 62]],
+  [[19, 22], [23, 25], [34, 46], [52, 52], [56, 57], [58, 61]],
+  [[19, 27], [36, 46], [55, 61], [63, 66]],
+  [[19, 28], [36, 46], [55, 56], [58, 59], [63, 67]],
+  [[20, 29], [37, 45], [56, 59], [64, 67]],
+  [[20, 29], [37, 45], [62, 66]],
+  [[21, 28], [37, 44], [46, 46], [60, 67]],
+  [[21, 27], [38, 43], [46, 46], [59, 67]],
+  [[21, 25], [38, 42], [59, 67]],
+  [[21, 24], [39, 41], [60, 66]],
+  [[21, 23], [65, 66], [69, 69]],
+  [[21, 22], [66, 66], [68, 69]],
+  [[21, 22], [68, 68]],
+  [[21, 22]],
+  [],
+  [],
+  [[30, 60]],
+  [[10, 66]],
+  [[0, 71]],
+  [[0, 71]],
+  [[0, 71]],
+];
+
+function landAt(latDeg, lonDeg) {
+  const row = Math.min(35, Math.max(0, Math.floor((90 - latDeg) / 5)));
+  const col = Math.floor(((((lonDeg + 180) % 360) + 360) % 360) / 5);
+  const runs = LAND_ROWS[row];
+  for (let i = 0; i < runs.length; i++) {
+    if (col >= runs[i][0] && col <= runs[i][1]) return true;
+  }
+  return false;
+}
+
+const GLOBE_CITIES = [
+  { lat: 52.37, lon: 4.9, label: "AMSTERDAM" },
+  { lat: 37.57, lon: 126.98, label: "SOUTH KOREA" },
+  { lat: 38.9, lon: 1.43, label: "IBIZA" },
+  { lat: -23.55, lon: -46.63, label: "BRAZIL" },
+];
+
+const RING_TEXT = "REFOLDERED · REFOLDERED · ";
+
+/* ================= ROTATING COIN → ASCII GLOBE =================
    Precise trig geometry rendered to an offscreen canvas, converted to a
    halftone dot field, with crisp vector linework layered on top. One coin:
-   Mercedes tri-star face / BMW roundel face. */
+   Mercedes tri-star face / BMW roundel face.
+   Every click winds the spin faster; after 12 clicks the strobing blur
+   collapses into a slowly turning ASCII globe with red site markers and
+   "refoldered" orbiting it in mono. */
 function PillCanvas() {
   const canvasRef = useRef(null);
+  const spinRef = useRef({ mode: "coin", clicks: 0, speed: 1, rot: 0, vel: 0, flash: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -264,11 +329,147 @@ function PillCanvas() {
     let raf;
     let last = 0;
 
+    // wind it up; past 12 clicks the blur collapses into the globe
+    function onClick() {
+      const st = spinRef.current;
+      if (st.mode !== "coin") return;
+      st.clicks += 1;
+      st.speed = Math.min(60, st.speed * 1.35);
+      if (st.clicks >= 12) {
+        st.mode = "globe";
+        st.vel = 4.2;
+        st.flash = 1;
+      }
+    }
+    canvas.addEventListener("click", onClick);
+
+    const GR = 178; // globe radius
+
+    function drawRingHalf(now, front) {
+      const n = RING_TEXT.length;
+      const base = now / 1700;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-0.3);
+      ctx.font = "600 16px ui-monospace, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i < n; i++) {
+        const a = base + (i * Math.PI * 2) / n;
+        const isFront = Math.sin(a) > 0;
+        if (isFront !== front) continue;
+        const ch = RING_TEXT[i];
+        if (ch === " ") continue;
+        const ex = Math.cos(a) * GR * 1.32;
+        const ey = Math.sin(a) * GR * 0.34;
+        ctx.save();
+        ctx.translate(ex, ey);
+        ctx.rotate(Math.atan2(Math.cos(a) * 0.34, -Math.sin(a) * 1.32));
+        ctx.fillStyle =
+          ch === "·"
+            ? "#d43d2a"
+            : front
+              ? "rgba(240,238,230,0.95)"
+              : "rgba(240,238,230,0.26)";
+        ctx.fillText(ch, 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function drawGlobe(dt, now) {
+      const st = spinRef.current;
+      st.rot += (st.vel * dt) / 1000;
+      // spin inherits the coin's frenzy, then eases to a calm turn
+      st.vel = 0.22 + (st.vel - 0.22) * Math.exp(-dt / 1500);
+      ctx.clearRect(0, 0, W, H);
+
+      drawRingHalf(now, false); // text passing behind the sphere
+
+      const cell = 7;
+      ctx.font = "700 10px ui-monospace, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const rotDeg = (st.rot * 180) / Math.PI;
+      for (let py = cy - GR; py <= cy + GR; py += cell) {
+        for (let px = cx - GR; px <= cx + GR; px += cell) {
+          const dx = (px - cx) / GR;
+          const dy = (py - cy) / GR;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 1) continue;
+          const z = Math.sqrt(1 - d2);
+          const lat = Math.asin(-dy) * (180 / Math.PI);
+          const lon = Math.atan2(dx, z) * (180 / Math.PI) + rotDeg;
+          const limb = Math.pow(z, 0.55); // limb darkening toward the edge
+          if (landAt(lat, lon)) {
+            const ch = limb > 0.75 ? "#" : limb > 0.45 ? "%" : "+";
+            ctx.fillStyle = `rgba(240,238,230,${0.28 + 0.68 * limb})`;
+            ctx.fillText(ch, px, py);
+          } else {
+            ctx.fillStyle = `rgba(240,238,230,${0.06 + 0.12 * limb})`;
+            ctx.fillText("·", px, py);
+          }
+        }
+      }
+      ctx.strokeStyle = "rgba(240,238,230,0.4)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, GR + 3, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // red site markers, only while on the visible hemisphere
+      ctx.font = "600 11px ui-monospace, Menlo, monospace";
+      GLOBE_CITIES.forEach(({ lat, lon, label }) => {
+        const la = (lat * Math.PI) / 180;
+        const phi = (lon * Math.PI) / 180 - st.rot;
+        const mx = Math.cos(la) * Math.sin(phi);
+        const mz = Math.cos(la) * Math.cos(phi);
+        if (mz < 0.12) return;
+        const sx2 = cx + mx * GR;
+        const sy2 = cy - Math.sin(la) * GR;
+        ctx.fillStyle = "#d43d2a";
+        ctx.beginPath();
+        ctx.arc(sx2, sy2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        const pr = 6.5 + 2.5 * Math.sin(now / 260 + la * 7);
+        ctx.strokeStyle = "rgba(212,61,42,0.8)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(sx2, sy2, pr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillText(label, sx2 + 10, sy2 - 7);
+        ctx.textAlign = "center";
+      });
+
+      drawRingHalf(now, true); // text passing in front
+
+      if (st.flash > 0) {
+        ctx.fillStyle = `rgba(240,238,230,${st.flash * 0.55})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, GR * (1.3 - st.flash * 0.3), 0, Math.PI * 2);
+        ctx.fill();
+        st.flash = Math.max(0, st.flash - dt / 450);
+      }
+    }
+
     function frame(ts) {
       raf = requestAnimationFrame(frame);
-      if (last && ts - last < 70) return;
+      const st = spinRef.current;
+
+      if (st.mode === "globe") {
+        if (last && ts - last < 33) return;
+        const dt = last ? Math.min(80, ts - last) : 16;
+        last = ts;
+        drawGlobe(dt, ts);
+        return;
+      }
+
+      // coin: frame interval shrinks as speed climbs, so it strobes
+      const interval = Math.max(18, 70 / Math.sqrt(st.speed));
+      if (last && ts - last < interval) return;
       last = ts;
-      theta += 0.045;
+      theta += 0.045 * st.speed;
 
       const s = Math.sin(theta);
       const c = Math.cos(theta);
@@ -322,7 +523,10 @@ function PillCanvas() {
     }
 
     raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("click", onClick);
+    };
   }, []);
 
   return <canvas ref={canvasRef} className="pillCanvas" />;
@@ -427,37 +631,39 @@ function SceneCanvas() {
       }
     }
 
-    /* ---- oscilloscope chassis (1:1 with scope svg at offset 1010,78) ---- */
-    const sX = (x) => 1010 + x;
-    const sY = (y) => 78 + y;
+    /* ---- oscilloscope chassis (matches scope svg: 500 wide at 1070,78) ---- */
+    const sc = 500 / 560;
+    const sX = (x) => 1070 + x * sc;
+    const sY = (y) => 78 + y * sc;
     grad = g.createLinearGradient(0, sY(4), 0, sY(396));
     grad.addColorStop(0, "#454545");
     grad.addColorStop(0.5, "#2e2e2e");
     grad.addColorStop(1, "#1c1c1c");
     g.beginPath();
-    g.roundRect(sX(4), sY(4), 552, 392, 14);
+    g.roundRect(sX(4), sY(4), 552 * sc, 392 * sc, 14 * sc);
     g.fillStyle = grad;
     g.fill();
     // bezel + screen
     g.beginPath();
-    g.roundRect(sX(26), sY(42), 330, 290, 10);
+    g.roundRect(sX(26), sY(42), 330 * sc, 290 * sc, 10 * sc);
     g.fillStyle = "#242424";
     g.fill();
-    const srg = g.createRadialGradient(sX(191), sY(187), 30, sX(191), sY(187), 220);
+    const srg = g.createRadialGradient(sX(191), sY(187), 30 * sc, sX(191), sY(187), 220 * sc);
     srg.addColorStop(0, "#101010");
     srg.addColorStop(1, "#040404");
     g.fillStyle = srg;
-    g.fillRect(sX(42), sY(58), 298, 258);
+    g.fillRect(sX(42), sY(58), 298 * sc, 258 * sc);
     // panel divider shadow
     g.fillStyle = "#171717";
-    g.fillRect(sX(366), sY(16), 4, 368);
+    g.fillRect(sX(366), sY(16), 4 * sc, 368 * sc);
     // knobs as shaded spheres
     [
       [418, 140, 16],
       [506, 140, 16],
       [462, 292, 20],
       [232, 372, 11],
-    ].forEach(([kx, ky, kr]) => {
+    ].forEach(([kx, ky, kr0]) => {
+      const kr = kr0 * sc;
       const kg = g.createRadialGradient(sX(kx) - kr / 3, sY(ky) - kr / 3, kr * 0.15, sX(kx), sY(ky), kr);
       kg.addColorStop(0, "#e0e0e0");
       kg.addColorStop(0.55, "#7a7a7a");
@@ -468,53 +674,10 @@ function SceneCanvas() {
       g.fill();
     });
     g.fillStyle = "#2e2e2e";
-    g.fillRect(sX(60), sY(398), 60, 12);
-    g.fillRect(sX(440), sY(398), 60, 12);
+    g.fillRect(sX(60), sY(398), 60 * sc, 12 * sc);
+    g.fillRect(sX(440), sY(398), 60 * sc, 12 * sc);
 
-    /* ---- pills (scale 250/240 at offset 400,810) ---- */
-    const ps = 1.04167;
-    const pX = (x) => 400 + x * ps;
-    const pY = (y) => 810 + y * ps;
-    const tablet = (cx, cy, rx, ry, depth) => {
-      const RX = rx * ps;
-      const RY = ry * ps;
-      const D = depth * ps;
-      grad = g.createLinearGradient(0, pY(cy), 0, pY(cy) + D + RY);
-      grad.addColorStop(0, "#8e8e8e");
-      grad.addColorStop(1, "#222222");
-      g.beginPath();
-      g.ellipse(pX(cx), pY(cy) + D, RX, RY, 0, 0, Math.PI);
-      g.lineTo(pX(cx) - RX, pY(cy));
-      g.ellipse(pX(cx), pY(cy), RX, RY, 0, Math.PI, 0, true);
-      g.closePath();
-      g.fillStyle = grad;
-      g.fill();
-      const tg = g.createRadialGradient(pX(cx) - RX / 3, pY(cy) - RY / 2, 1, pX(cx), pY(cy), RX);
-      tg.addColorStop(0, "#dcdcdc");
-      tg.addColorStop(1, "#6a6a6a");
-      g.beginPath();
-      g.ellipse(pX(cx), pY(cy), RX, RY, 0, 0, Math.PI * 2);
-      g.fillStyle = tg;
-      g.fill();
-    };
-    tablet(50, 44, 24, 10, 14);
-    tablet(104, 76, 20, 8, 12);
-    tablet(46, 92, 17, 7, 10);
-    tablet(88, 108, 14, 6, 8);
-    // capsule
-    g.save();
-    g.translate(pX(178), pY(62));
-    g.rotate((-28 * Math.PI) / 180);
-    grad = g.createLinearGradient(-33 * ps, 0, 33 * ps, 0);
-    grad.addColorStop(0, "#d2d2d2");
-    grad.addColorStop(0.5, "#8a8a8a");
-    grad.addColorStop(0.5001, "#5e5e5e");
-    grad.addColorStop(1, "#1e1e1e");
-    g.beginPath();
-    g.roundRect(-33 * ps, -14 * ps, 66 * ps, 28 * ps, 14 * ps);
-    g.fillStyle = grad;
-    g.fill();
-    g.restore();
+    /* ---- pills render in their own canvas (PillsBreak) so they can shatter ---- */
 
     /* ---- halftone conversion of the whole scene ---- */
     const img = g.getImageData(0, 0, W, H).data;
@@ -820,7 +983,7 @@ function Knob({ cx, cy, r, angle = -40 }) {
   );
 }
 
-function ScopeSVG({ traceD, playing, vpp, vrms, freq, title }) {
+function ScopeSVG({ playing, vpp, vrms, freq, title }) {
   return (
     <svg className={`scopeSvg${playing ? " playing" : ""}`} viewBox="0 0 560 420">
       {/* body */}
@@ -857,10 +1020,6 @@ function ScopeSVG({ traceD, playing, vpp, vrms, freq, title }) {
       <text x="52" y="306" className="scopeText">
         Vpp {vpp}  Vrms {vrms}  Freq {freq}
       </text>
-      {/* trace */}
-      <path d={traceD} className="scopeTraceGlow" />
-      <path d={traceD} className="scopeTrace" />
-
       {/* right panel */}
       <line x1="368" y1="20" x2="368" y2="380" className="scopeDivider" />
       <text x="462" y="38" textAnchor="middle" className="scopeLabelBig">TYPE 465</text>
@@ -915,7 +1074,113 @@ function ScopeSVG({ traceD, playing, vpp, vrms, freq, title }) {
   );
 }
 
-/* ================= EVIDENCE TAG ================= */
+/* ================= CRT SCOPE SCREEN =================
+   Real-time oscilloscope render: a phosphor-persistence canvas laid over
+   the SVG screen. The trace is a trigger-locked synthesis driven by a
+   per-track BPM (hashed from the track id) — a pitch-dropping kick
+   fundamental, offbeat hat noise, and drifting harmonics, all riding a
+   beat envelope, with afterglow trails like a slow-phosphor CRT. */
+function ScopeScreen({ playing, seed }) {
+  const ref = useRef(null);
+  const propsRef = useRef({ playing, seed });
+  propsRef.current = { playing, seed };
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const W = 596; // 2x the SVG screen rect (298x258)
+    const H = 516;
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    // persistent phosphor layer: faded a little each frame, so bright
+    // strokes decay into trails instead of vanishing
+    const trail = document.createElement("canvas");
+    trail.width = W;
+    trail.height = H;
+    const tctx = trail.getContext("2d");
+
+    let raf;
+    let last = performance.now();
+    let t = 0; // signal clock — only advances while playing
+
+    function frame(now) {
+      raf = requestAnimationFrame(frame);
+      const dt = Math.min(80, now - last);
+      last = now;
+      const { playing, seed } = propsRef.current;
+      if (playing) t += dt / 1000;
+
+      // fade the phosphor
+      tctx.globalCompositeOperation = "destination-out";
+      tctx.fillStyle = `rgba(0,0,0,${playing ? 0.14 : 0.3})`;
+      tctx.fillRect(0, 0, W, H);
+      tctx.globalCompositeOperation = "source-over";
+
+      const bpm = 96 + (seed % 49);
+      const beat = (t * bpm) / 60;
+      const bp = beat % 1;
+      const bar = Math.floor(beat / 4);
+      const kick = Math.exp(-bp * 5.5);
+      // harmonic mix drifts once per bar so the wave keeps evolving
+      const cyc = 2 + (seed % 3);
+      const a2 = 0.22 + 0.3 * hash2(seed, bar);
+      const a3 = 0.1 + 0.18 * hash2(seed + 7, bar);
+      const amp = playing
+        ? 0.14 + 0.58 * kick + 0.08 * Math.sin(t * 0.8)
+        : 0.012;
+      // offbeat hat: a burst of noise halfway through even beats
+      const hatEnv =
+        beat % 2 >= 1 ? Math.exp(-Math.pow((bp - 0.5) * 9, 2)) * 0.3 : 0;
+
+      const N = 220;
+      const nf = Math.floor(now / 16);
+      tctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const x = i / N;
+        // kick fundamental drops in pitch across the beat, scope-triggered
+        const drop = 1 + 2.2 * kick;
+        const base =
+          Math.sin(Math.PI * 2 * cyc * drop * x) +
+          a2 * Math.sin(Math.PI * 2 * cyc * 2 * x + t * 0.7) +
+          a3 * Math.sin(Math.PI * 2 * cyc * 3 * x + t * 1.3);
+        const hat = hatEnv * (hash2(i, nf) - 0.5) * 2;
+        const fuzz = (hash2(i * 3 + 1, nf) - 0.5) * 0.02;
+        const y = H / 2 - (amp * base + hat + fuzz) * H * 0.42;
+        if (i === 0) tctx.moveTo(0, y);
+        else tctx.lineTo(x * W, y);
+      }
+      // glow pass then hot core, like a real CRT beam
+      tctx.shadowColor = "#ff2d12";
+      tctx.shadowBlur = 14;
+      tctx.strokeStyle = playing
+        ? "rgba(255,64,34,0.9)"
+        : "rgba(255,64,34,0.35)";
+      tctx.lineWidth = 2.6;
+      tctx.stroke();
+      tctx.shadowBlur = 0;
+      tctx.strokeStyle = playing
+        ? "rgba(255,216,200,0.9)"
+        : "rgba(255,216,200,0.25)";
+      tctx.lineWidth = 1;
+      tctx.stroke();
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(trail, 0, 0);
+    }
+
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <canvas ref={ref} className="scopeScreenCanvas" />;
+}
+
+/* ================= EVIDENCE TAG =================
+   A shipping-style evidence tag: reinforced punch hole with a string,
+   filled-in case fields, a rotated red HOLD stamp, and a partial
+   fingerprint — floats in place via CSS. */
 function EvidenceTag() {
   // torn-edge polygon, computed zigzag
   const pts = [];
@@ -923,42 +1188,93 @@ function EvidenceTag() {
   for (let y = 0; y <= 140; y += 12) pts.push(`${y % 24 === 0 ? 180 : 176},${y}`);
   for (let x = 180; x >= 0; x -= 12) pts.push(`${x},${x % 24 === 0 ? 140 : 136}`);
   for (let y = 140; y >= 0; y -= 12) pts.push(`${y % 24 === 0 ? 0 : 4},${y}`);
+  // partial fingerprint: broken concentric arcs
+  const fp = [];
+  for (let r = 3; r <= 15; r += 3) {
+    const a0 = (r * 37) % 360;
+    fp.push(
+      <path
+        key={r}
+        d={`M ${138 + r * Math.cos((a0 * Math.PI) / 180)},${52 + r * Math.sin((a0 * Math.PI) / 180)} A ${r},${r} 0 ${r % 6 === 0 ? 1 : 0} 1 ${138 + r * Math.cos(((a0 + 200) * Math.PI) / 180)},${52 + r * Math.sin(((a0 + 200) * Math.PI) / 180)}`}
+        className="fpArc"
+      />
+    );
+  }
   return (
-    <svg className="evidenceSvg" viewBox="-4 -4 188 148">
+    <svg className="evidenceSvg" viewBox="-14 -14 202 168">
+      {/* string through the punch hole */}
+      <path d="M 14,16 C -2,4 -8,-4 -12,-12" className="tagString" />
       <polygon points={pts.join(" ")} className="tornEdge" />
+      <circle cx="18" cy="18" r="6.5" className="tagHole" />
+      <circle cx="18" cy="18" r="3" className="tagHoleIn" />
       <rect x="14" y="14" width="152" height="112" className="dashedBox" />
-      <text x="90" y="46" textAnchor="middle" className="tagTitle">&#9668;EVIDENCE&#9658;</text>
-      <text x="60" y="72" className="tagHatch">///////</text>
-      <line x1="26" y1="88" x2="120" y2="88" className="tagLine" />
-      <line x1="26" y1="98" x2="100" y2="98" className="tagLine" />
-      <line x1="26" y1="108" x2="112" y2="108" className="tagLine" />
-      <polygon points="146,112 138,98 154,98" className="tagWarn" />
-      <text x="146" y="110" textAnchor="middle" className="tagWarnMark">!</text>
+      <text x="86" y="40" textAnchor="middle" className="tagTitle">&#9668;EVIDENCE&#9658;</text>
+      <line x1="26" y1="48" x2="146" y2="48" className="tagRule" />
+      <text x="26" y="66" className="tagField">CASE Nº</text>
+      <text x="76" y="66" className="tagFill">0819—∞</text>
+      <line x1="72" y1="69" x2="146" y2="69" className="tagLine" />
+      <text x="26" y="84" className="tagField">ITEM</text>
+      <text x="76" y="84" className="tagFill">802 MIN</text>
+      <line x1="72" y1="87" x2="146" y2="87" className="tagLine" />
+      <text x="26" y="102" className="tagField">SEALED</text>
+      <line x1="72" y1="105" x2="120" y2="105" className="tagLine" />
+      {fp}
+      {/* red HOLD stamp, skewed like it was pressed by hand */}
+      <g transform="rotate(-12 90 116)">
+        <rect x="56" y="106" width="68" height="21" className="stampBox" />
+        <text x="90" y="121" textAnchor="middle" className="stampText">HOLD</text>
+      </g>
+      <polygon points="150,122 142,108 158,108" className="tagWarn" />
+      <text x="150" y="120" textAnchor="middle" className="tagWarnMark">!</text>
     </svg>
   );
 }
 
-/* ================= EUPHORIA TICKET ================= */
+/* ================= EUPHORIA TICKET =================
+   A club admission ticket: perforated tear-off stub with ADMIT ONE,
+   serial number, wobbling barcode, red date stamp — floats in place. */
 function EuphoriaTicket() {
   return (
-    <svg className="ticketSvg" viewBox="0 0 180 220">
-      <rect x="4" y="4" width="172" height="212" className="tornEdge" />
-      <rect x="12" y="12" width="156" height="196" className="dashedBox" />
-      <path id="euphArc" d="M 24,74 A 82,82 0 0 1 156,74" fill="none" />
+    <svg className="ticketSvg" viewBox="0 0 190 220">
+      <rect x="4" y="4" width="182" height="212" className="tornEdge" />
+      {/* perforated stub */}
+      <line x1="40" y1="6" x2="40" y2="214" className="perfLine" />
+      {[18, 40, 62, 84, 106, 128, 150, 172, 194].map((y) => (
+        <circle key={y} cx="40" cy={y} r="2.1" className="perfHole" />
+      ))}
+      <text x="24" y="110" className="admitText" transform="rotate(-90 24 110)">
+        ADMIT ONE
+      </text>
+      <rect x="50" y="12" width="128" height="196" className="dashedBox" />
+      <path id="euphArc" d="M 52,86 A 68,68 0 0 1 176,86" fill="none" />
       <text className="ticketArc">
         <textPath href="#euphArc" startOffset="50%" textAnchor="middle">
           EUPHORIA
         </textPath>
       </text>
-      <circle cx="122" cy="128" r="26" className="smiley" />
-      <circle cx="113" cy="121" r="2.6" className="smileyDot" />
-      <circle cx="131" cy="121" r="2.6" className="smileyDot" />
-      <path d="M 110,136 A 15,15 0 0 0 134,136" className="smileyMouth" />
-      <line x1="24" y1="130" x2="80" y2="130" className="tagLine" />
-      <line x1="24" y1="142" x2="72" y2="142" className="tagLine" />
-      <line x1="24" y1="154" x2="80" y2="154" className="tagLine" />
-      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((k) => (
-        <rect key={k} x={24 + k * 11} y="176" width={k % 3 === 0 ? 6 : 3} height="20" className="barcode" />
+      <text x="114" y="94" textAnchor="middle" className="ticketFine">ONE WAY · NO RE-ENTRY</text>
+      <circle cx="136" cy="132" r="24" className="smiley" />
+      <circle cx="128" cy="126" r="2.4" className="smileyDot" />
+      <circle cx="144" cy="126" r="2.4" className="smileyDot" />
+      <path d="M 125,140 A 14,14 0 0 0 147,140" className="smileyMouth" />
+      <text x="60" y="122" className="tagField">Nº</text>
+      <text x="60" y="136" className="tagFill">000819</text>
+      <line x1="60" y1="150" x2="102" y2="150" className="tagLine" />
+      <line x1="60" y1="160" x2="96" y2="160" className="tagLine" />
+      {/* date stamp, pressed crooked */}
+      <g transform="rotate(9 84 184)">
+        <circle cx="84" cy="184" r="15" className="stampRing" />
+        <text x="84" y="188" textAnchor="middle" className="stampSmall">'92</text>
+      </g>
+      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((k) => (
+        <rect
+          key={k}
+          x={106 + k * 6.5}
+          y="170"
+          width={[3, 1.5, 4.5, 2, 1.5, 5, 2, 3.5, 1.5, 2.5, 4][k]}
+          height="26"
+          className="barcode"
+        />
       ))}
     </svg>
   );
@@ -1014,28 +1330,285 @@ function ChemDiagram() {
   );
 }
 
-/* ================= PILLS CLUSTER ================= */
-function PillsCluster() {
-  const tablet = (cx, cy, rx, ry, depth, key) => (
-    <g key={key} className="pillTablet">
-      <path d={`M ${cx - rx},${cy} a ${rx},${ry} 0 0 0 ${rx * 2},0 l 0,${depth} a ${rx},${ry} 0 0 1 ${-rx * 2},0 Z`} className="tabletSide" />
-      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} className="tabletTop" />
-      <line x1={cx - rx * 0.6} y1={cy} x2={cx + rx * 0.6} y2={cy} className="tabletScore" />
-    </g>
-  );
+/* ================= PILLS — HOVER TO BREAK =================
+   Each hover breaks the stash one stage further:
+   whole → halves → thirds → quarters → crumbs → powder lines.
+   Shaded grayscale → halftone dots with crisp linework on top — the same
+   engraving pipeline as the rest of the poster, re-rendered per stage. */
+function PillsBreak() {
+  const [stage, setStage] = useState(0);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const W = 250;
+    const H = 150;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const off = document.createElement("canvas");
+    off.width = W;
+    off.height = H;
+    const g = off.getContext("2d");
+
+    const TABLETS = [
+      [50, 48, 24, 10, 14],
+      [104, 80, 20, 8, 12],
+      [46, 96, 17, 7, 10],
+      [88, 112, 14, 6, 8],
+    ];
+    const CAP = { x: 178, y: 66, rot: (-28 * Math.PI) / 180, half: 33, r: 14 };
+    const ink = "rgba(240,238,230,0.9)";
+
+    const dust = (cx, cy, spread, count, seed) => {
+      for (let k = 0; k < count; k++) {
+        const a = hash2(seed * 31 + k, stage) * Math.PI * 2;
+        const d = spread * (0.4 + hash2(seed * 17 + k, stage + 3) * 0.9);
+        const lum = 120 + Math.floor(hash2(k, seed) * 110);
+        g.fillStyle = `rgb(${lum},${lum},${lum})`;
+        g.beginPath();
+        g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.5, 0.7 + hash2(k * 3, seed) * 1.1, 0, Math.PI * 2);
+        g.fill();
+      }
+    };
+
+    // one broken wedge of a tablet: shade pass fills, line pass strokes
+    const wedge = (target, mode, cx, cy, rx, ry, a0, a1, gap, jit) => {
+      const am = (a0 + a1) / 2;
+      target.save();
+      target.translate(cx + Math.cos(am) * gap, cy + Math.sin(am) * gap * (ry / rx));
+      target.scale(1, ry / rx);
+      target.rotate(jit);
+      target.beginPath();
+      target.moveTo(0, 0);
+      target.arc(0, 0, rx, a0, a1);
+      target.closePath();
+      if (mode === "shade") {
+        const tg = target.createRadialGradient(-rx / 3, -rx / 2, 1, 0, 0, rx);
+        tg.addColorStop(0, "#d6d6d6");
+        tg.addColorStop(1, "#5e5e5e");
+        target.fillStyle = tg;
+        target.fill();
+      } else {
+        target.strokeStyle = ink;
+        target.lineWidth = 1.1;
+        target.stroke();
+      }
+      target.restore();
+    };
+
+    // capsule halves pulled apart along their axis; sep=0 means intact
+    const capsule = (target, mode, sep, spill) => {
+      target.save();
+      target.translate(CAP.x, CAP.y);
+      target.rotate(CAP.rot);
+      const { half, r } = CAP;
+      const halves = [
+        [-half - sep, [r, 0, 0, r]],
+        [sep, [0, r, r, 0]],
+      ];
+      halves.forEach(([x0, radii]) => {
+        target.beginPath();
+        target.roundRect(x0, -r, half, r * 2, radii);
+        if (mode === "shade") {
+          const lg = target.createLinearGradient(0, -r, 0, r);
+          lg.addColorStop(0, "#cfcfcf");
+          lg.addColorStop(1, "#3a3a3a");
+          target.fillStyle = lg;
+          target.fill();
+        } else {
+          target.strokeStyle = ink;
+          target.lineWidth = 1.2;
+          target.stroke();
+        }
+      });
+      if (mode === "shade" && spill > 0) {
+        for (let k = 0; k < spill; k++) {
+          const lum = 130 + Math.floor(hash2(k, 91) * 100);
+          target.fillStyle = `rgb(${lum},${lum},${lum})`;
+          target.beginPath();
+          target.arc(
+            (hash2(k * 7, 5) - 0.5) * sep * 2,
+            (hash2(k * 11, 9) - 0.5) * r * 1.6,
+            0.8 + hash2(k, 13) * 1,
+            0,
+            Math.PI * 2
+          );
+          target.fill();
+        }
+      }
+      target.restore();
+    };
+
+    const render = (target, mode) => {
+      if (stage === 0) {
+        TABLETS.forEach(([cx, cy, rx, ry, depth]) => {
+          if (mode === "shade") {
+            let grad = target.createLinearGradient(0, cy, 0, cy + depth + ry);
+            grad.addColorStop(0, "#8e8e8e");
+            grad.addColorStop(1, "#222222");
+            target.beginPath();
+            target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+            target.lineTo(cx - rx, cy);
+            target.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);
+            target.closePath();
+            target.fillStyle = grad;
+            target.fill();
+            const tg = target.createRadialGradient(cx - rx / 3, cy - ry / 2, 1, cx, cy, rx);
+            tg.addColorStop(0, "#dcdcdc");
+            tg.addColorStop(1, "#6a6a6a");
+            target.beginPath();
+            target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+            target.fillStyle = tg;
+            target.fill();
+          } else {
+            target.strokeStyle = ink;
+            target.lineWidth = 1.1;
+            target.beginPath();
+            target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+            target.stroke();
+            target.beginPath();
+            target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+            target.stroke();
+            target.beginPath();
+            target.moveTo(cx - rx * 0.6, cy);
+            target.lineTo(cx + rx * 0.6, cy);
+            target.strokeStyle = "rgba(240,238,230,0.5)";
+            target.lineWidth = 1;
+            target.stroke();
+          }
+        });
+        capsule(target, mode, 0, 0);
+      } else if (stage <= 3) {
+        const n = stage + 1;
+        TABLETS.forEach(([cx, cy, rx, ry], i) => {
+          const rot0 = hash2(i, 40 + stage) * Math.PI * 2;
+          for (let k = 0; k < n; k++) {
+            const a0 = rot0 + (k * 2 * Math.PI) / n;
+            const a1 = a0 + (2 * Math.PI) / n;
+            const gap = 4 + stage * 2.5 + hash2(i * 7 + k, stage) * 3;
+            const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3;
+            wedge(target, mode, cx, cy, rx, ry, a0, a1, gap, jit);
+          }
+          if (mode === "shade") dust(cx, cy, rx * 1.3, 5 * stage, i);
+        });
+        capsule(target, mode, 4 + stage * 5, stage * 9);
+      } else if (stage === 4) {
+        // crumbs: irregular shards scattered around each tablet's grave
+        TABLETS.forEach(([cx, cy, rx], i) => {
+          for (let k = 0; k < 7; k++) {
+            const a = hash2(i * 19 + k, 71) * Math.PI * 2;
+            const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1);
+            const px = cx + Math.cos(a) * d;
+            const py = cy + Math.sin(a) * d * 0.55;
+            const s = rx * (0.16 + hash2(i + k, 77) * 0.22);
+            const rr = hash2(i * 29 + k, 79) * Math.PI;
+            target.save();
+            target.translate(px, py);
+            target.rotate(rr);
+            target.beginPath();
+            target.moveTo(-s, 0);
+            target.lineTo(-s * 0.2, -s * 0.9);
+            target.lineTo(s, -s * 0.2);
+            target.lineTo(s * 0.5, s * 0.8);
+            target.closePath();
+            if (mode === "shade") {
+              const lum = 110 + Math.floor(hash2(k, i) * 110);
+              target.fillStyle = `rgb(${lum},${lum},${lum})`;
+              target.fill();
+            } else {
+              target.strokeStyle = ink;
+              target.lineWidth = 1;
+              target.stroke();
+            }
+            target.restore();
+          }
+          if (mode === "shade") dust(cx, cy, rx * 1.6, 26, i);
+        });
+        capsule(target, mode, 26, 30);
+      } else {
+        // powder: everything cut into lines
+        if (mode === "shade") {
+          const LINES = [
+            [30, 48, 150],
+            [24, 78, 190],
+            [36, 108, 160],
+            [52, 132, 120],
+          ];
+          LINES.forEach(([x0, y, len], li) => {
+            for (let x = 0; x < len; x += 1.6) {
+              const p = hash2(Math.floor(x * 3) + li * 997, li);
+              if (p > 0.78) continue;
+              const lum = 140 + Math.floor(hash2(Math.floor(x), li * 7) * 95);
+              target.fillStyle = `rgb(${lum},${lum},${lum})`;
+              target.beginPath();
+              target.arc(
+                x0 + x,
+                y + (hash2(Math.floor(x * 2), li * 13) - 0.5) * 3.4,
+                0.55 + p * 0.9,
+                0,
+                Math.PI * 2
+              );
+              target.fill();
+            }
+          });
+        } else {
+          // razor blade, linework only
+          target.save();
+          target.translate(206, 60);
+          target.rotate(-0.21);
+          target.strokeStyle = ink;
+          target.lineWidth = 1.2;
+          target.beginPath();
+          target.roundRect(-19, -12, 38, 24, 2.5);
+          target.stroke();
+          target.beginPath();
+          target.moveTo(-8, 0);
+          target.lineTo(8, 0);
+          target.stroke();
+          target.beginPath();
+          target.arc(0, -5.5, 2.2, 0, Math.PI * 2);
+          target.stroke();
+          target.restore();
+        }
+      }
+    };
+
+    render(g, "shade");
+
+    // halftone the shaded pass
+    const img = g.getImageData(0, 0, W, H).data;
+    const CELL = 3;
+    ctx.fillStyle = "#e8e6de";
+    for (let y = 0; y < H; y += CELL) {
+      for (let x = 0; x < W; x += CELL) {
+        const i = (((y | 0) * W + (x | 0)) * 4) | 0;
+        const lum = img[i];
+        if (lum < 14) continue;
+        const r = CELL * 0.52 * Math.pow(lum / 255, 0.85);
+        if (r < 0.22) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    render(ctx, "line");
+  }, [stage]);
+
   return (
-    <svg className="pillsSvg" viewBox="0 0 240 130">
-      {tablet(50, 44, 24, 10, 14, "t1")}
-      {tablet(104, 76, 20, 8, 12, "t2")}
-      {tablet(46, 92, 17, 7, 10, "t3")}
-      {tablet(88, 108, 14, 6, 8, "t4")}
-      {/* capsule */}
-      <g transform="rotate(-28 178 62)">
-        <rect x="146" y="48" width="64" height="28" rx="14" className="capsuleBody" />
-        <path d="M 178,48 l 0,28" className="capsuleSeam" />
-        <rect x="178" y="48" width="32" height="28" rx="14" className="capsuleHalf" />
-      </g>
-    </svg>
+    <canvas
+      ref={ref}
+      className="pillsCanvas"
+      onMouseEnter={() => setStage((s) => (s >= 5 ? 5 : s + 1))}
+    />
   );
 }
 
@@ -1102,29 +1675,15 @@ export default function Home() {
     setEntered(true);
   }
 
-  // Scope trace, locked to real playback. YouTube's iframe exposes no raw
-  // audio samples cross-origin, so the wave is synthesized FROM the player's
-  // actual clock and track id: phase = getCurrentTime(), so it freezes on
-  // pause and jumps on seek, and the energy envelope + spike heights are
-  // hashed per (track, moment) — every song gets its own evolving shape.
-  const N = 140;
+  // Readout numbers for the scope panel. The trace itself is rendered by
+  // ScopeScreen (canvas, phosphor persistence); these just keep the text
+  // readouts breathing with the same clock.
   const p = playing ? mediaTime * 3.4 : wavePhase * 0.08;
   const segF = mediaTime * 1.8;
   const segI = Math.floor(segF);
   const eA = hash2(vidHash, segI);
   const eB = hash2(vidHash, segI + 1);
   const energy = playing ? 0.3 + 0.7 * (eA + (eB - eA) * (segF - segI)) : 0.15;
-  let traceD = "";
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    const seg = Math.floor(t * 14 + p * 1.1);
-    const hvar = 0.35 + 0.65 * hash2(seg + (vidHash % 997), 7);
-    const spike = Math.pow(Math.abs(Math.sin(t * Math.PI * 7 + p)), 8) * 92 * hvar;
-    const ripple = Math.sin(t * 46 + p * 1.6) * 4 + Math.sin(t * 13 + p * 0.7) * 5;
-    const y = 260 - (spike + ripple) * energy;
-    const x = 42 + t * 298;
-    traceD += `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
-  }
   const vpp = playing ? (2.04 * energy + 0.4).toFixed(2) + "V" : "--.-";
   const vrms = playing ? (0.72 * energy + 0.14).toFixed(2) + "V" : "--.-";
   const freq = playing ? (98.3 + Math.sin(p * 0.7) * 1.2).toFixed(1) + "Hz" : "--.-";
@@ -1198,13 +1757,13 @@ export default function Home() {
 
           <div {...haunt("scopeWrap")}>
             <ScopeSVG
-              traceD={traceD}
               playing={playing}
               vpp={vpp}
               vrms={vrms}
               freq={freq}
               title={titleShown}
             />
+            <ScopeScreen playing={playing} seed={vidHash} />
           </div>
 
           <div {...haunt("recallPos")}>
@@ -1223,7 +1782,7 @@ export default function Home() {
           </div>
 
           <div {...haunt("pillsPos")}>
-            <PillsCluster />
+            <PillsBreak />
           </div>
 
           <div {...haunt("evidencePos")}>
