@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import SpotifyPlayer from "./components/SpotifyPlayer";
 
 const YT_URL = "https://youtube.com/playlist?list=PLFHK1y8DXCMY";
 
@@ -1399,9 +1400,12 @@ export default function Home() {
 
       <div className="grain" />
 
-      <button className="soundToggle" onClick={toggleMute}>
-        {muted ? "unmute" : "mute"}
-      </button>
+      <SpotifyPlayer
+        onTimeUpdate={(t) => setMediaTime(t)}
+        playing={playing}
+        setPlaying={setPlaying}
+      />
+
       <div className="audioMount" id="yt-player-mount-outer">
         <div id="yt-player-mount" />
       </div>
