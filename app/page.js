@@ -3046,6 +3046,19 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Only surfaces once the viewport is narrow enough to letterbox
+          the poster — it lives in the dead black bars, not over the art. */}
+      <div className="deviceNag deviceNagTop">
+        <span className="nagShout">FUCK OFF</span>
+      </div>
+      <div className="deviceNag deviceNagBottom">
+        <span className="nagLine">THIS WAS NOT PRESSED FOR A PHONE.</span>
+        <span className="nagLine">
+          COME BACK ON A REAL DEVICE. THEN LEAVE.
+          <span className="nagCaret">_</span>
+        </span>
+      </div>
+
       {hauntTip && (
         <div
           className="hauntTip"

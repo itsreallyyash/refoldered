@@ -442,7 +442,7 @@ body {
   left: 1370px;
   top: 690px;
   z-index: 2;
-  transform: rotate(-1.6deg);
+  transform: rotate(-7.5deg);
 }
 .flyerLink {
   display: block;
@@ -481,10 +481,11 @@ body {
 /* sits above the flyer so its bonds cross the poster's top edge */
 .chemPos {
   position: absolute;
-  left: 1258px;
-  top: 574px;
-  width: 290px;
+  left: 1240px;
+  top: 536px;
+  width: 319px;
   z-index: 3;
+  transform: rotate(6.5deg);
 }
 .chemSvg {
   width: 100%;
@@ -523,6 +524,62 @@ body {
   text-anchor: middle;
 }
 
+/* ---------- LETTERBOX NAG ----------
+   The poster is scaled to fit, so a tall viewport leaves dead black bars
+   above and below it. Rather than reflow the artwork for phones, the
+   bars get used: typed straight onto the black, positioned off the
+   poster's own scaled height so they always land in the empty space.
+   Hidden entirely on anything wide enough to show the sheet properly. */
+.deviceNag {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.34rem;
+  text-align: center;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  pointer-events: none;
+  padding: 0 1.2rem;
+}
+.deviceNagTop {
+  top: calc(50% - (500px * var(--poster-scale)) - 3.4rem);
+}
+.deviceNagBottom {
+  top: calc(50% + (500px * var(--poster-scale)) + 1.5rem);
+}
+.nagShout {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em; /* letter-spacing pads the right; recentre it */
+  color: var(--ink);
+}
+.nagLine {
+  font-size: 0.62rem;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  color: var(--ink-mid);
+  line-height: 1.9;
+}
+.nagCaret {
+  color: var(--red);
+  animation: nagBlink 1.05s step-end infinite;
+}
+@keyframes nagBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+/* 1620x1020 is the poster's fit box; anything taller than that ratio
+   is letterboxed top and bottom */
+@media (max-aspect-ratio: 81 / 51) {
+  .deviceNag {
+    display: flex;
+  }
+}
+
 /* ---------- HAUNT (hover whisper) ---------- */
 .haunt {
   cursor: help;
@@ -541,17 +598,20 @@ svg a.haunt:hover .discOuter {
   stroke: var(--red);
   stroke-width: 2;
 }
+/* The tip is fixed, so it sits outside the transform that scales the
+   poster — it has to track --poster-scale by hand or it looms over the
+   artwork on small screens. Floored so it stays legible. */
 .hauntTip {
   position: fixed;
   z-index: 60;
-  max-width: 300px;
+  max-width: calc(300px * var(--poster-scale));
   background: rgba(5, 5, 4, 0.92);
   border: 1px dashed var(--red);
   color: var(--ink);
-  font-size: 0.68rem;
+  font-size: clamp(7px, calc(0.68rem * var(--poster-scale)), 0.68rem);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  padding: 0.5rem 0.7rem;
+  padding: calc(0.5rem * var(--poster-scale)) calc(0.7rem * var(--poster-scale));
   pointer-events: none;
   white-space: nowrap;
 }
