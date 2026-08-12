@@ -108,120 +108,21 @@ body {
   z-index: 2;
 }
 
-/* ---------- GRAIN & STAINS ---------- */
+/* ---------- GRAIN & GROUND ---------- */
+.groundCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
 .grain {
   position: fixed;
   inset: -4px;
   filter: url(#grainFilter);
-  opacity: 0.26; /* kept low so the black stays black */
+  opacity: 0.2; /* the paper tooth lives on the ground canvas now */
   mix-blend-mode: screen;
   pointer-events: none;
   z-index: 30;
-}
-/* blood: hard-edged pools with satellite droplets, not soft fog */
-.stain {
-  position: absolute;
-  pointer-events: none;
-}
-.stA {
-  top: -30px;
-  right: 40px;
-  width: 300px;
-  height: 260px;
-  background:
-    radial-gradient(circle at 58% 32%, #4a0808 0 26%, #2a0404 34%, transparent 37%),
-    radial-gradient(circle at 30% 62%, #3a0606 0 12%, transparent 15%),
-    radial-gradient(circle at 78% 66%, #420707 0 8%, transparent 11%),
-    radial-gradient(circle at 14% 38%, #330505 0 5%, transparent 8%),
-    radial-gradient(circle at 88% 44%, #2d0505 0 3.5%, transparent 6%);
-  opacity: 0.9;
-}
-.stB {
-  top: 240px;
-  left: -50px;
-  width: 260px;
-  height: 420px;
-  background:
-    radial-gradient(ellipse 42% 30% at 34% 26%, #3f0707 0 58%, transparent 64%),
-    radial-gradient(circle at 62% 52%, #330505 0 9%, transparent 12%),
-    radial-gradient(circle at 46% 70%, #2c0404 0 6%, transparent 9%),
-    radial-gradient(circle at 70% 84%, #380606 0 4%, transparent 7%);
-  opacity: 0.85;
-}
-.stC {
-  bottom: -40px;
-  right: -30px;
-  width: 380px;
-  height: 320px;
-  background:
-    radial-gradient(circle at 42% 58%, #440707 0 22%, #250404 30%, transparent 34%),
-    radial-gradient(circle at 72% 30%, #380606 0 10%, transparent 13%),
-    radial-gradient(circle at 22% 34%, #300505 0 6%, transparent 9%),
-    radial-gradient(circle at 60% 86%, #3c0606 0 5%, transparent 8%);
-  opacity: 0.92;
-}
-.stD {
-  bottom: 130px;
-  left: 330px;
-  width: 180px;
-  height: 130px;
-  background:
-    radial-gradient(circle at 50% 50%, #360606 0 18%, transparent 24%),
-    radial-gradient(circle at 24% 30%, #2c0505 0 7%, transparent 11%),
-    radial-gradient(circle at 78% 68%, #300505 0 5%, transparent 9%);
-  opacity: 0.8;
-}
-
-/* cut-up blocks: pieces of the page sheared out of register */
-.cut {
-  position: absolute;
-  pointer-events: none;
-  z-index: 4;
-  background: #000;
-}
-.cutA {
-  top: 58px;
-  right: 170px;
-  width: 170px;
-  height: 30px;
-  border: 1.5px dashed rgba(240, 238, 230, 0.35);
-  transform: rotate(-2.4deg) translate(8px, 6px);
-}
-.cutA::after {
-  content: "";
-  position: absolute;
-  left: -8px;
-  top: 13px;
-  width: 120%;
-  height: 1px;
-  background: rgba(212, 61, 42, 0.55);
-  transform: rotate(1deg);
-}
-.cutB {
-  left: 2px;
-  top: 470px;
-  width: 24px;
-  height: 150px;
-  border: 1.5px dashed rgba(240, 238, 230, 0.3);
-  transform: translateX(9px) rotate(1.6deg);
-}
-.cutC {
-  bottom: 46px;
-  right: 420px;
-  width: 130px;
-  height: 20px;
-  border: 1.5px dashed rgba(240, 238, 230, 0.3);
-  transform: rotate(2.2deg) translateY(7px);
-}
-.cutC::after {
-  content: "";
-  position: absolute;
-  left: 18px;
-  top: -6px;
-  width: 1px;
-  height: 32px;
-  background: rgba(212, 61, 42, 0.5);
-  transform: rotate(-14deg);
 }
 
 /* ---------- HEADER ---------- */
@@ -494,7 +395,11 @@ body {
   stroke: var(--red);
 }
 .knobGrab {
-  cursor: ns-resize;
+  cursor: grab;
+  touch-action: none;
+}
+.knobGrab:active {
+  cursor: grabbing;
 }
 .knobGrab:active .knobPointer {
   stroke: var(--red);
@@ -543,9 +448,8 @@ body {
 }
 .lipsPos {
   position: absolute;
-  left: 1046px;
-  top: 700px;
-  width: 210px;
+  left: 1020px;
+  top: 682px;
   animation: floatTicket 9.5s ease-in-out infinite 1.4s;
 }
 .lipsCanvas {

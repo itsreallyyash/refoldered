@@ -550,6 +550,195 @@ function PillCanvas() {
   return <canvas ref={canvasRef} className="pillCanvas" />;
 }
 
+/* ================= GROUND — paper texture + blood =================
+   The page it's all printed on. A black sheet with real tooth: fibre
+   grain, faint scan banding and a couple of press creases, so the black
+   reads as stock rather than an empty div. On top of it, blood that
+   behaves like blood — pools with ragged edges built from radial noise,
+   gravity drips running off their lower rim, cast-off spatter thrown
+   along an axis, and fine atomised mist. Nothing here is a circle. */
+function GroundCanvas() {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const W = 1600;
+    const H = 1000;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    const c = canvas.getContext("2d");
+    c.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    c.fillStyle = "#000";
+    c.fillRect(0, 0, W, H);
+
+    /* ---- paper tooth ---- */
+    // fibre grain: short strokes at random angles, barely above black
+    for (let i = 0; i < 14000; i++) {
+      const x = hash2(i, 1) * W;
+      const y = hash2(i, 2) * H;
+      const a = hash2(i, 3) * Math.PI;
+      const len = 1 + hash2(i, 4) * 3;
+      const v = 6 + Math.floor(hash2(i, 5) * 13);
+      c.strokeStyle = `rgb(${v},${v},${v})`;
+      c.lineWidth = 0.6;
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      c.stroke();
+    }
+    // scan banding
+    for (let y = 0; y < H; y += 3) {
+      const v = 3 + Math.floor(hash2(y, 21) * 5);
+      c.fillStyle = `rgba(${v * 3},${v * 3},${v * 3},0.5)`;
+      c.fillRect(0, y, W, 1);
+    }
+    // press creases: long faint diagonals
+    [
+      [-40, 300, 1700, 190],
+      [-40, 760, 1700, 880],
+      [420, -30, 300, 1030],
+    ].forEach(([x1, y1, x2, y2], i) => {
+      const lgc = c.createLinearGradient(x1, y1, x2, y2);
+      lgc.addColorStop(0, "rgba(255,255,255,0)");
+      lgc.addColorStop(0.5, `rgba(255,255,255,${0.035 + i * 0.008})`);
+      lgc.addColorStop(1, "rgba(255,255,255,0)");
+      c.strokeStyle = lgc;
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.moveTo(x1, y1);
+      c.lineTo(x2, y2);
+      c.stroke();
+    });
+
+    /* ---- blood ---- */
+    const DEEP = [
+      [58, 6, 8],
+      [74, 8, 9],
+      [44, 5, 6],
+    ];
+    const bloodStyle = (seed, alpha) => {
+      const [r, gg, b] = DEEP[Math.floor(hash2(seed, 88) * DEEP.length) % DEEP.length];
+      return `rgba(${r},${gg},${b},${alpha})`;
+    };
+
+    // an irregular pool: radius modulated by layered noise so the rim
+    // is ragged, never a circle
+    const pool = (cx, cy, rad, seed, alpha, squash = 1) => {
+      c.beginPath();
+      const N = 128;
+      for (let i = 0; i <= N; i++) {
+        const t = (i / N) * Math.PI * 2;
+        const n =
+          0.72 +
+          0.2 * Math.sin(t * 3 + hash2(seed, 1) * 6) +
+          0.14 * Math.sin(t * 7 + hash2(seed, 2) * 6) +
+          0.09 * Math.sin(t * 13 + hash2(seed, 3) * 6);
+        const rr = rad * n;
+        const x = cx + Math.cos(t) * rr;
+        const y = cy + Math.sin(t) * rr * squash;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.closePath();
+      c.fillStyle = bloodStyle(seed, alpha);
+      c.fill();
+    };
+
+    // gravity drips off the lower rim, tapering to a rounded head
+    const drips = (cx, cy, rad, seed, count, alpha) => {
+      for (let k = 0; k < count; k++) {
+        const t = (0.15 + hash2(seed * 7 + k, 31) * 0.7) * Math.PI; // lower arc
+        const sx = cx + Math.cos(t) * rad * 0.8;
+        const sy = cy + Math.sin(t) * rad * 0.7;
+        const len = 18 + hash2(seed * 11 + k, 33) * 90;
+        const w = 1.6 + hash2(seed * 13 + k, 37) * 3;
+        const drift = (hash2(seed * 17 + k, 41) - 0.5) * 14;
+        c.beginPath();
+        c.moveTo(sx - w, sy);
+        c.quadraticCurveTo(sx - w * 0.5 + drift, sy + len * 0.6, sx + drift * 0.7, sy + len);
+        c.quadraticCurveTo(sx + w * 0.5 + drift, sy + len * 0.6, sx + w, sy);
+        c.closePath();
+        c.fillStyle = bloodStyle(seed + k, alpha);
+        c.fill();
+        // bead at the tip
+        c.beginPath();
+        c.ellipse(sx + drift * 0.7, sy + len, w * 0.9, w * 1.2, 0, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+
+    // cast-off: elongated droplets flung along a direction, each stretched
+    // in its travel direction like real spatter
+    const castOff = (ox, oy, dir, spread, count, seed, maxD) => {
+      for (let k = 0; k < count; k++) {
+        const a = dir + (hash2(seed * 3 + k, 51) - 0.5) * spread;
+        const d = Math.pow(hash2(seed * 5 + k, 53), 0.65) * maxD;
+        const x = ox + Math.cos(a) * d;
+        const y = oy + Math.sin(a) * d;
+        const s = (1 - d / maxD) * 7 + 0.8;
+        c.save();
+        c.translate(x, y);
+        c.rotate(a);
+        c.beginPath();
+        c.ellipse(0, 0, s * (1 + d / maxD), s * 0.62, 0, 0, Math.PI * 2);
+        c.fillStyle = bloodStyle(seed + k, 0.5 + hash2(k, 57) * 0.4);
+        c.fill();
+        c.restore();
+      }
+    };
+
+    // atomised mist
+    const mist = (ox, oy, rad, count, seed) => {
+      for (let k = 0; k < count; k++) {
+        const a = hash2(seed * 9 + k, 61) * Math.PI * 2;
+        const d = Math.pow(hash2(seed * 11 + k, 63), 0.5) * rad;
+        c.beginPath();
+        c.arc(ox + Math.cos(a) * d, oy + Math.sin(a) * d, 0.4 + hash2(k, 67) * 1.1, 0, Math.PI * 2);
+        c.fillStyle = bloodStyle(seed + k, 0.25 + hash2(k, 71) * 0.4);
+        c.fill();
+      }
+    };
+
+    // top-right: a hit against the corner, throwing spatter down-left
+    pool(1455, 70, 120, 1, 0.95, 0.8);
+    pool(1400, 120, 54, 2, 0.8);
+    drips(1455, 70, 120, 1, 7, 0.85);
+    castOff(1430, 96, Math.PI * 0.78, 1.5, 90, 3, 460);
+    mist(1440, 100, 240, 320, 4);
+
+    // left edge: a long smear running down the margin
+    pool(30, 400, 130, 5, 0.9, 1.5);
+    drips(30, 430, 120, 5, 9, 0.8);
+    castOff(60, 430, Math.PI * 0.15, 1.2, 60, 6, 300);
+    mist(60, 430, 200, 220, 7);
+
+    // bottom-right: the heaviest pool, drips running off the page
+    pool(1500, 930, 150, 8, 0.95, 0.9);
+    pool(1420, 880, 60, 9, 0.75);
+    drips(1500, 930, 150, 8, 8, 0.85);
+    castOff(1460, 900, Math.PI * 1.15, 1.6, 80, 10, 420);
+    mist(1470, 905, 260, 300, 11);
+
+    // a few isolated droplets mid-page so it doesn't read as vignetting
+    [
+      [430, 250, 12],
+      [880, 690, 13],
+      [300, 880, 14],
+      [1180, 210, 15],
+    ].forEach(([x, y, seed]) => {
+      pool(x, y, 7 + hash2(seed, 77) * 12, seed, 0.8);
+      mist(x, y, 46, 26, seed + 40);
+    });
+  }, []);
+
+  return <canvas ref={ref} className="groundCanvas" />;
+}
+
 /* ================= STATIC SCENE — grayscale render → halftone =================
    Everything with volume (tower, scope chassis, knobs, pills, dot-trail) is
    drawn as shaded grayscale geometry on an offscreen canvas, then converted
@@ -945,13 +1134,9 @@ function AlbumArtCanvas({ spin }) {
       raf = requestAnimationFrame(frame);
       const dt = last ? Math.min(80, ts - last) : 16;
       last = ts;
-      if (spinRef.current >= 0) {
-        angle += dt * 0.0022; // ~1 rev / 2.9s, CD-player lazy
-        draw();
-      } else if (angle !== 0) {
-        angle = 0; // hover ended — snap the art upright once
-        draw();
-      }
+      // whichever disc is engaged keeps turning, like a loaded platter
+      angle += dt * 0.0022; // ~1 rev / 2.9s, CD-player lazy
+      draw();
     }
 
     draw();
@@ -991,11 +1176,7 @@ function TowerSVG({ active, haunt, onHover }) {
             {...h}
             onMouseEnter={(e) => {
               h.onMouseEnter?.(e);
-              onHover?.(k);
-            }}
-            onMouseLeave={(e) => {
-              h.onMouseLeave?.(e);
-              onHover?.(-1);
+              onHover?.(k); // engaging a disc is sticky — it keeps playing
             }}
           >
             <g className={isActive ? "towerDisc active" : "towerDisc"}>
@@ -1055,14 +1236,35 @@ function Knob({ cx, cy, r, angle = -40 }) {
 }
 
 function ScopeSVG({ playing, vpp, vrms, freq, title, volume, onVolume, power, onPower }) {
-  // volume knob: grab and drag vertically, like turning a real pot
-  const dragRef = useRef(null);
+  // Volume knob: it's a rotary pot, so it tracks the angle of the cursor
+  // around the knob's centre — sweep it round the dial and the pointer
+  // follows your hand. Travel is the usual 270°, from -135° to +135°,
+  // and the unwrapping stops a sweep past an end from wrapping around.
+  const svgRef = useRef(null);
+  const knobCx = 462;
+  const knobCy = 292;
+  function angleAt(ev) {
+    const svg = svgRef.current;
+    const r = svg.getBoundingClientRect();
+    // client px → viewBox units (viewBox is 560x420)
+    const x = ((ev.clientX - r.left) / r.width) * 560 - knobCx;
+    const y = ((ev.clientY - r.top) / r.height) * 420 - knobCy;
+    // 0° at the top of the dial, positive clockwise
+    return (Math.atan2(x, -y) * 180) / Math.PI;
+  }
   function knobDown(e) {
     e.preventDefault();
-    dragRef.current = { y: e.clientY, v: volume };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    let prev = angleAt(e);
+    let deg = -135 + volume * 270; // current pointer position on the dial
     const move = (ev) => {
-      const d = dragRef.current;
-      onVolume(Math.max(0, Math.min(1, d.v + (d.y - ev.clientY) * 0.006)));
+      const a = angleAt(ev);
+      let d = a - prev;
+      if (d > 180) d -= 360; // shortest way round
+      if (d < -180) d += 360;
+      prev = a;
+      deg = Math.max(-135, Math.min(135, deg + d));
+      onVolume((deg + 135) / 270);
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -1073,7 +1275,7 @@ function ScopeSVG({ playing, vpp, vrms, freq, title, volume, onVolume, power, on
   }
   const on = playing && power;
   return (
-    <svg className={`scopeSvg${on ? " playing" : ""}`} viewBox="0 0 560 420">
+    <svg ref={svgRef} className={`scopeSvg${on ? " playing" : ""}`} viewBox="0 0 560 420">
       {/* body */}
       <rect x="4" y="4" width="552" height="392" rx="14" className="scopeBody" />
       <rect x="10" y="10" width="540" height="380" rx="10" className="scopeBodyInner" />
@@ -1140,8 +1342,8 @@ function ScopeSVG({ playing, vpp, vrms, freq, title, volume, onVolume, power, on
       <text x="462" y="248" textAnchor="middle" className="scopeLabel">OUTPUT</text>
       <text x="462" y="262" textAnchor="middle" className="scopeTiny">VOLUME</text>
       <g onPointerDown={knobDown} className="knobGrab">
-        <Knob cx={462} cy={292} r={20} angle={-135 + volume * 270} />
-        <circle cx={462} cy={292} r={27} fill="transparent" />
+        <Knob cx={knobCx} cy={knobCy} r={20} angle={-135 + volume * 270} />
+        <circle cx={knobCx} cy={knobCy} r={30} fill="transparent" />
       </g>
       <text x="424" y="286" textAnchor="middle" className="scopeTiny">2</text>
       <text x="432" y="272" textAnchor="middle" className="scopeTiny">4</text>
@@ -1489,8 +1691,13 @@ function AsciiLips() {
     const canvas = ref.current;
     if (!canvas) return;
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    const W = 210;
-    const H = 150;
+    // the print is drawn at source scale, then typed on a fine grid and
+    // laid out larger — a coarse cell can't hold the cupid's bow
+    const SW = 210;
+    const SH = 150;
+    const SCALE = 1.34;
+    const W = Math.round(SW * SCALE);
+    const H = Math.round(SH * SCALE);
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = W + "px";
@@ -1501,95 +1708,134 @@ function AsciiLips() {
 
     // ---- grayscale kiss print ----
     const off = document.createElement("canvas");
-    off.width = W;
-    off.height = H;
+    off.width = SW;
+    off.height = SH;
     const g = off.getContext("2d");
 
-    // mouth line: corners at x=16/194, dipping under the cupid's bow
-    const L = 16;
-    const R = 194;
-    const MY = 76;
+    /* Anatomy, not a blob. Corners taper to sharp points; the upper lip
+       carries a real cupid's bow (twin peaks either side of a philtrum
+       dip); the lower is fuller and rounder with a soft centre pillow.
+       The mouth line bows down to the middle rather than running flat. */
+    const L = 10; // left corner
+    const R = 200; // right corner
+    const MY = 74; // corner height
+    // mouth line: dips below the corners, deepest at centre
     const mouthY = (x) => {
       const t = (x - L) / (R - L);
-      return MY + Math.sin(t * Math.PI) * 5;
+      return MY + Math.sin(t * Math.PI) * 9;
+    };
+    const mouthPath = (path) => {
+      path.moveTo(L, MY);
+      path.bezierCurveTo(52, MY + 13, 158, MY + 13, R, MY);
     };
 
-    // upper lip with a real cupid's bow: two peaks, a notch between them
     const upper = new Path2D();
+    // start at the sharp left corner, rise to the left peak
     upper.moveTo(L, MY);
-    upper.bezierCurveTo(44, 46, 74, 34, 90, 46); // left peak
-    upper.quadraticCurveTo(105, 58, 120, 46); // philtrum notch
-    upper.bezierCurveTo(136, 34, 166, 46, R, MY); // right peak
-    upper.bezierCurveTo(150, 84, 60, 84, L, MY);
-    // fuller lower lip
+    upper.bezierCurveTo(34, 52, 66, 34, 86, 36); // left peak of the bow
+    upper.quadraticCurveTo(105, 51, 124, 36); // philtrum dip, then right peak
+    upper.bezierCurveTo(144, 34, 176, 52, R, MY);
+    // back along the mouth line
+    upper.bezierCurveTo(158, MY + 13, 52, MY + 13, L, MY);
+    upper.closePath();
+
     const lower = new Path2D();
     lower.moveTo(L, MY);
-    lower.bezierCurveTo(60, 84, 150, 84, R, MY);
-    lower.bezierCurveTo(174, 118, 140, 138, 105, 138);
-    lower.bezierCurveTo(70, 138, 36, 118, L, MY);
+    lower.bezierCurveTo(52, MY + 13, 158, MY + 13, R, MY);
+    // full, round underside, widest just past centre
+    lower.bezierCurveTo(182, 116, 148, 142, 105, 142);
+    lower.bezierCurveTo(62, 142, 28, 116, L, MY);
+    lower.closePath();
 
-    let lg = g.createLinearGradient(0, 34, 0, 80);
-    lg.addColorStop(0, "#9a9a9a");
-    lg.addColorStop(0.55, "#c8c8c8");
-    lg.addColorStop(1, "#6e6e6e");
+    // upper lip sits in shadow, lit from above
+    let lg = g.createLinearGradient(0, 32, 0, MY + 14);
+    lg.addColorStop(0, "#8e8e8e");
+    lg.addColorStop(0.45, "#bdbdbd");
+    lg.addColorStop(1, "#5a5a5a");
     g.fillStyle = lg;
     g.fill(upper);
-    lg = g.createLinearGradient(0, 78, 0, 140);
-    lg.addColorStop(0, "#7c7c7c");
-    lg.addColorStop(0.42, "#e0e0e0"); // highlight where the lip catches light
-    lg.addColorStop(1, "#5e5e5e");
+    // lower lip is fuller and catches the light band across its belly
+    lg = g.createLinearGradient(0, MY, 0, 144);
+    lg.addColorStop(0, "#6f6f6f");
+    lg.addColorStop(0.34, "#f0f0f0"); // gloss band
+    lg.addColorStop(0.62, "#a8a8a8");
+    lg.addColorStop(1, "#4e4e4e");
     g.fillStyle = lg;
     g.fill(lower);
 
-    // vertical lip creases, fanning from the mouth line and clipped to
-    // the lips so they never run off the shape
     g.save();
     const both = new Path2D();
     both.addPath(upper);
     both.addPath(lower);
     g.clip(both);
-    g.strokeStyle = "rgba(0,0,0,0.55)";
-    for (let k = 0; k <= 30; k++) {
-      const t = k / 30;
-      const x = L + 6 + t * (R - L - 12);
-      const bow = Math.sin(t * Math.PI);
+
+    // specular highlight on the lower lip, offset left of centre
+    const spec = g.createRadialGradient(88, 104, 2, 88, 104, 42);
+    spec.addColorStop(0, "rgba(255,255,255,0.85)");
+    spec.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = spec;
+    g.beginPath();
+    g.ellipse(88, 104, 42, 15, -0.12, 0, Math.PI * 2);
+    g.fill();
+    // smaller catchlight on the upper lip's right peak
+    const spec2 = g.createRadialGradient(132, 50, 1, 132, 50, 20);
+    spec2.addColorStop(0, "rgba(255,255,255,0.5)");
+    spec2.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = spec2;
+    g.beginPath();
+    g.ellipse(132, 50, 20, 8, -0.2, 0, Math.PI * 2);
+    g.fill();
+
+    // vertical creases, denser and finer toward the corners, splaying
+    // away from the mouth line like real lip texture
+    for (let k = 0; k <= 46; k++) {
+      const t = k / 46;
+      const x = L + 4 + t * (R - L - 8);
+      const bow = Math.sin(t * Math.PI); // longest at the centre
       const my = mouthY(x);
-      const lean = (t - 0.5) * 14;
-      g.lineWidth = 0.8 + hash2(k, 5) * 0.7;
+      const lean = (t - 0.5) * 26; // creases fan outward
+      g.strokeStyle = `rgba(0,0,0,${0.3 + hash2(k, 5) * 0.35})`;
+      g.lineWidth = 0.6 + hash2(k, 7) * 0.8;
       g.beginPath();
       g.moveTo(x, my - 2);
-      g.lineTo(x + lean * 0.3, my - 6 - bow * (14 + hash2(k, 9) * 10));
+      g.lineTo(x + lean * 0.22, my - 5 - bow * (16 + hash2(k, 9) * 12));
       g.stroke();
       g.beginPath();
       g.moveTo(x, my + 2);
-      g.lineTo(x + lean * 0.5, my + 8 + bow * (20 + hash2(k, 13) * 14));
+      g.lineTo(x + lean * 0.42, my + 7 + bow * (24 + hash2(k, 13) * 16));
       g.stroke();
     }
-    // dark mouth line itself
-    g.strokeStyle = "rgba(0,0,0,0.75)";
-    g.lineWidth = 2.6;
-    g.beginPath();
-    g.moveTo(L, MY);
-    g.bezierCurveTo(60, MY + 9, 150, MY + 9, R, MY);
-    g.stroke();
+
+    // the mouth line itself, thinning to nothing at the sharp corners
+    for (let k = 0; k < 60; k++) {
+      const t = k / 60;
+      const x = L + t * (R - L);
+      const taper = Math.sin(t * Math.PI);
+      g.strokeStyle = `rgba(0,0,0,${0.5 + taper * 0.45})`;
+      g.lineWidth = 0.6 + taper * 3;
+      g.beginPath();
+      g.moveTo(x, mouthY(x));
+      g.lineTo(x + (R - L) / 60 + 0.6, mouthY(x + (R - L) / 60));
+      g.stroke();
+    }
     g.restore();
     // kiss-print stipple: press marks knocked out of the pigment
     g.globalCompositeOperation = "destination-out";
-    for (let k = 0; k < 420; k++) {
-      const x = 12 + hash2(k, 3) * 186;
-      const y = 32 + hash2(k, 7) * 110;
+    for (let k = 0; k < 300; k++) {
+      const x = 8 + hash2(k, 3) * 194;
+      const y = 30 + hash2(k, 7) * 116;
       g.beginPath();
-      g.arc(x, y, 0.5 + hash2(k, 11) * 1.7, 0, Math.PI * 2);
+      g.arc(x, y, 0.4 + hash2(k, 11) * 1.3, 0, Math.PI * 2);
       g.fill();
     }
     g.globalCompositeOperation = "source-over";
 
     // ---- type it ----
-    const img = g.getImageData(0, 0, W, H).data;
+    const img = g.getImageData(0, 0, SW, SH).data;
     const RAMP = " .:-=+*#%@";
-    // the slit: a cut across the lower lip
-    const A = [86, 88];
-    const B = [134, 126];
+    // the slit: a cut opening across the lower lip
+    const A = [92, 92];
+    const B = [138, 130];
     const distToCut = (x, y) => {
       const vx = B[0] - A[0];
       const vy = B[1] - A[1];
@@ -1599,28 +1845,30 @@ function AsciiLips() {
       return Math.hypot(x - px, y - py);
     };
 
-    ctx.font = "700 7px ui-monospace, Menlo, monospace";
+    const cell = 3; // source px per character
+    ctx.font = `700 ${(cell * SCALE * 1.6).toFixed(1)}px ui-monospace, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const cell = 4;
-    for (let y = 0; y < H; y += cell) {
-      for (let x = 0; x < W; x += cell) {
-        const i = (y * W + x) * 4;
+    for (let y = 0; y < SH; y += cell) {
+      for (let x = 0; x < SW; x += cell) {
+        const i = (y * SW + x) * 4;
         if (img[i + 3] < 40) continue;
         const lum = img[i];
         const ci = Math.min(RAMP.length - 1, Math.floor((lum / 255) * RAMP.length));
-        let ch = RAMP[ci];
+        const ch = RAMP[ci];
         if (ch === " ") continue;
+        const px = x * SCALE;
+        const py = y * SCALE;
         const d = distToCut(x, y);
-        if (d < 2.4) continue; // the wound itself: open, black
-        if (d < 5.5) {
+        if (d < 2) continue; // the wound itself: open, black
+        if (d < 5) {
           // cut edges bead up dark red; brighter when the kiss runs hot
           ctx.fillStyle = hot ? "#ff2210" : "#8a1410";
-          ctx.fillText("#", x, y);
+          ctx.fillText("#", px, py);
           continue;
         }
         ctx.fillStyle = hot ? "#ff5a3a" : "rgba(240,238,230,0.9)";
-        ctx.fillText(ch, x, y);
+        ctx.fillText(ch, px, py);
       }
     }
   }, [hot]);
@@ -1795,8 +2043,8 @@ function PillsBreak() {
     const ease = (t) => 1 - Math.pow(1 - t, 3);
 
     /* ---- the cutter: a metal Amex, shaded then typed as ASCII ---- */
-    const CW = 150;
-    const CH = 96;
+    const CW = 122; // small enough that you can watch the cut happen
+    const CH = 78;
     const card = document.createElement("canvas");
     card.width = CW;
     card.height = CH;
@@ -1812,24 +2060,24 @@ function PillsBreak() {
       cg.roundRect(4, 4, CW - 8, CH - 8, 8);
       cg.fill();
       cg.fillStyle = "#3a3a3a";
-      cg.fillRect(18, 32, 26, 20);
+      cg.fillRect(14, 26, 22, 17);
       cg.strokeStyle = "#141414";
-      cg.lineWidth = 1.4;
-      cg.strokeRect(18, 32, 26, 20);
+      cg.lineWidth = 1.3;
+      cg.strokeRect(14, 26, 22, 17);
       cg.beginPath();
-      cg.moveTo(18, 42);
-      cg.lineTo(44, 42);
-      cg.moveTo(31, 32);
-      cg.lineTo(31, 52);
+      cg.moveTo(14, 34.5);
+      cg.lineTo(36, 34.5);
+      cg.moveTo(25, 26);
+      cg.lineTo(25, 43);
       cg.stroke();
       cg.fillStyle = "#0e0e0e";
-      cg.font = "900 20px ui-monospace, Menlo, monospace";
-      cg.fillText("AMEX", 84, 27);
-      cg.font = "700 11px ui-monospace, Menlo, monospace";
-      cg.fillText("3782 8224 6310 005", 16, 70);
-      cg.font = "600 8px ui-monospace, Menlo, monospace";
-      cg.fillText("MEMBER SINCE ∞", 16, 85);
-      cg.fillText("R D JAMES", 100, 85);
+      cg.font = "900 17px ui-monospace, Menlo, monospace";
+      cg.fillText("AMEX", 66, 23);
+      cg.font = "700 9px ui-monospace, Menlo, monospace";
+      cg.fillText("3782 822463 10005", 13, 58);
+      cg.font = "600 7px ui-monospace, Menlo, monospace";
+      cg.fillText("MEMBER SINCE ∞", 13, 70);
+      cg.fillText("R D JAMES", 82, 70);
     }
     const cardImg = cg.getImageData(0, 0, CW, CH).data;
     const RAMP = " .:-=+*#%@";
@@ -1944,15 +2192,19 @@ function PillsBreak() {
        fine dust halo, clumps here and there, ragged ends. Scatter throws
        grains off the spine — high-hash grains first, furthest. */
     const LINES = [
-      [OX + 14, OY + 50, 195],
-      [OX + 4, OY + 84, 245],
-      [OX + 20, OY + 118, 215],
-      [OX + 40, OY + 148, 150],
+      [OX + 26, OY + 54, 150],
+      [OX + 20, OY + 84, 176],
+      [OX + 34, OY + 112, 158],
     ];
     const drawPowder = (p, sc) => {
       const spread = sc / 10; // 0..1
+      // keep the mess on the desk: everything stays inside the pill area
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(OX - 18, OY - 6, 250, 168);
+      ctx.clip();
       LINES.forEach(([x0, y0, len], li) => {
-        for (let gi = 0; gi < len * 2.2; gi++) {
+        for (let gi = 0; gi < len * 4.2; gi++) {
           const u = hash2(gi * 13 + li * 971, 3);
           const x = x0 + u * len;
           // taper density toward the ends of the line
@@ -1971,15 +2223,16 @@ function PillsBreak() {
           const h = hash2(gi * 23 + li * 77, 53);
           const df = Math.max(0, spread - h * 0.92);
           if (df > 0) {
+            // grains skid outward along the desk, mostly sideways
             const ang = hash2(gi * 29 + li, 59) * Math.PI * 2;
-            px += Math.cos(ang) * df * 320;
-            py += Math.sin(ang) * df * 110 + df * 26;
+            px += Math.cos(ang) * df * 62;
+            py += Math.sin(ang) * df * 22 + df * 6;
             alpha *= Math.max(0.15, 1 - df * 1.1);
             size *= Math.max(0.5, 1 - df * 0.5);
           }
           // settle-in when the powder stage lands
           py -= (1 - p) * 10;
-          const lum = 150 + Math.floor(hash2(gi, 61) * 85);
+          const lum = 175 + Math.floor(hash2(gi, 61) * 80);
           ctx.fillStyle = `rgba(${lum},${lum},${lum},${alpha * p})`;
           ctx.beginPath();
           ctx.arc(px, py, size, 0, Math.PI * 2);
@@ -1996,6 +2249,7 @@ function PillsBreak() {
           ctx.fill();
         }
       });
+      ctx.restore();
     };
 
     const halftone = () => {
@@ -2020,6 +2274,36 @@ function PillsBreak() {
       ctx.clearRect(0, 0, W, H);
       g.clearRect(0, 0, W, H);
       const e = ease(p);
+
+      /* ---- the blade's path ----
+         The card lifts off the desk, sweeps right-to-left straight
+         through the pile, then returns. Pieces only come apart once the
+         blade has actually passed over them, so the cut is caused by the
+         card rather than just happening next to it. */
+      const PARK = [W - 74, H - 52, -0.12];
+      const SS = [OX + 244, OY + 86, -0.05];
+      const SE = [OX - 30, OY + 86, -0.05];
+      const mix = (a, b, t) => [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+      ];
+      let cardPos = PARK;
+      let bladeX = Infinity; // nothing cut yet
+      if (stage >= 1) {
+        if (p < 0.18) {
+          cardPos = mix(PARK, SS, ease(p / 0.18));
+          bladeX = SS[0];
+        } else if (p < 0.82) {
+          cardPos = mix(SS, SE, (p - 0.18) / 0.64);
+          bladeX = cardPos[0];
+        } else {
+          cardPos = mix(SE, PARK, ease((p - 0.82) / 0.18));
+          bladeX = SE[0];
+        }
+      }
+      // how thoroughly the blade has gone through a piece at x
+      const cutAt = (x) => Math.max(0, Math.min(1, (x - bladeX) / 34));
 
       const pieces = (target, mode) => {
         if (stage === 0) {
@@ -2064,28 +2348,33 @@ function PillsBreak() {
           const n = stage + 1;
           TABLETS.forEach(([cx, cy, rx, ry], i) => {
             const rot0 = hash2(i, 40 + stage) * Math.PI * 2;
+            const cut = cutAt(cx); // this tablet only splits once cut
             for (let k = 0; k < n; k++) {
               const a0 = rot0 + (k * 2 * Math.PI) / n;
               const a1 = a0 + (2 * Math.PI) / n;
-              // pieces start almost touching and ease apart — the break
-              // reads as motion instead of a jump-cut
               const gapT = 4 + stage * 2.5 + hash2(i * 7 + k, stage) * 3;
-              const gap = gapT * (0.25 + 0.75 * e);
-              const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3 * e;
+              const gap = gapT * cut;
+              const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3 * cut;
               wedge(target, mode, cx, cy, rx, ry, a0, a1, gap, jit);
             }
-            if (mode === "shade") dust(cx, cy, rx * 1.3 * e, Math.round(5 * stage * e), i);
+            if (mode === "shade") dust(cx, cy, rx * 1.3 * cut, Math.round(5 * stage * cut), i);
           });
-          capsule(target, mode, (4 + stage * 5) * (0.3 + 0.7 * e), Math.round(stage * 9 * e));
+          capsule(
+            target,
+            mode,
+            (4 + stage * 5) * cutAt(CAP.x),
+            Math.round(stage * 9 * cutAt(CAP.x))
+          );
         } else if (stage === 4) {
           TABLETS.forEach(([cx, cy, rx], i) => {
+            const cut = cutAt(cx);
             for (let k = 0; k < 7; k++) {
               const a = hash2(i * 19 + k, 71) * Math.PI * 2;
-              const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1) * (0.4 + 0.6 * e);
+              const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1) * cut;
               const px = cx + Math.cos(a) * d;
               const py = cy + Math.sin(a) * d * 0.55;
               const s = rx * (0.16 + hash2(i + k, 77) * 0.22);
-              const rr = hash2(i * 29 + k, 79) * Math.PI * e;
+              const rr = hash2(i * 29 + k, 79) * Math.PI * cut;
               target.save();
               target.translate(px, py);
               target.rotate(rr);
@@ -2106,9 +2395,9 @@ function PillsBreak() {
               }
               target.restore();
             }
-            if (mode === "shade") dust(cx, cy, rx * 1.6 * e, Math.round(26 * e), i);
+            if (mode === "shade") dust(cx, cy, rx * 1.6 * cut, Math.round(26 * cut), i);
           });
-          capsule(target, mode, 26 * e, Math.round(30 * e));
+          capsule(target, mode, 26 * cutAt(CAP.x), Math.round(30 * cutAt(CAP.x)));
         }
       };
 
@@ -2120,21 +2409,14 @@ function PillsBreak() {
         drawPowder(e, scatter);
       }
 
-      // the card arrives with the first cut and stays on the job;
-      // it lies flatter once everything is powder
-      if (stage >= 1) {
-        const slide = stage === 1 ? (1 - e) * 70 : 0;
-        const cardX = stage === 5 ? W - 84 : W - 78 + slide;
-        const cardY = stage === 5 ? H - 62 : 66;
-        const rot = stage === 5 ? -0.09 : -0.24;
-        asciiCard(cardX, cardY, rot, stage === 1 ? e : 1);
-      }
+      // the blade last, so it passes over the pieces it just parted
+      asciiCard(cardPos[0], cardPos[1], cardPos[2], 1);
     };
 
     // tween the stage change
     let raf;
     const t0 = performance.now();
-    const DUR = 380;
+    const DUR = 640; // long enough to watch the blade travel
     const tick = (now) => {
       const p = Math.min(1, (now - t0) / DUR);
       render(p);
@@ -2160,9 +2442,9 @@ function PillsBreak() {
 /* ================= PAGE ================= */
 export default function Home() {
   const [entered, setEntered] = useState(false);
-  // which disc is engaged: the hovered one, or the first by default
-  const [hoverSlot, setHoverSlot] = useState(-1);
-  const activeSlot = hoverSlot >= 0 ? hoverSlot : 0;
+  // the engaged disc: 01 to start, and hovering another moves the reader
+  // head to it for good — it keeps playing after the cursor leaves
+  const [activeSlot, setActiveSlot] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [trackTitle, setTrackTitle] = useState("");
   const [hauntTip, setHauntTip] = useState(null);
@@ -2240,22 +2522,16 @@ export default function Home() {
 
       <div className="posterViewport">
         <div className="poster">
+          <GroundCanvas />
           <div className="pageFrame" />
-          <div className="stain stA" />
-          <div className="stain stB" />
-          <div className="stain stC" />
-          <div className="stain stD" />
-          <div className="cut cutA" />
-          <div className="cut cutB" />
-          <div className="cut cutC" />
 
           <div {...haunt("siteTitle")}>refoldered.com_</div>
 
           <SceneCanvas />
 
           <div className="towerWrap">
-            <AlbumArtCanvas spin={hoverSlot} />
-            <TowerSVG active={activeSlot} haunt={haunt} onHover={setHoverSlot} />
+            <AlbumArtCanvas spin={activeSlot} />
+            <TowerSVG active={activeSlot} haunt={haunt} onHover={setActiveSlot} />
           </div>
 
           <div {...haunt("flipLabel")}>[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
