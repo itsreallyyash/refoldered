@@ -1163,7 +1163,7 @@ export default function Home() {
     if (!ids || !window.YT?.Player) return;
     const playerVars = {
       autoplay: 1,
-      mute: 0,
+      mute: 1, // autoplay requires mute in cross-origin iframes; user can click unmute
       controls: 0,
       playsinline: 1,
       modestbranding: 1,
