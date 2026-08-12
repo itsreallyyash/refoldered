@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 const ARTISTS = ["Aphex Twin", "Deftones", "Boards of Canada"];
+const ARTIST_URLS = {
+  "Aphex Twin": "https://soundcloud.com/aphex-twin",
+  Deftones: "https://soundcloud.com/deftones",
+  "Boards of Canada": "https://soundcloud.com/boards-of-canada",
+};
 
 export default function SoundCloudPlayer({
   onTimeUpdate,
@@ -12,52 +17,43 @@ export default function SoundCloudPlayer({
   const iframeRef = useRef(null);
   const widgetRef = useRef(null);
   const [currentTrack, setCurrentTrack] = useState("");
-  const [isReady, setIsReady] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [trackLoaded, setTrackLoaded] = useState(false);
+  const loadingRef = useRef(false);
 
   // Load SoundCloud Widget API
   useEffect(() => {
-    if (window.SC) {
-      setIsReady(true);
+    setMounted(true);
+    if (window.SC?.Widget) {
+      initPlayer();
       return;
     }
 
     const script = document.createElement("script");
     script.src = "https://w.soundcloud.com/player/api.js";
+    script.async = true;
     script.onload = () => {
-      window.SC.Widget.bind(window.SC.Widget.Events.READY, () => {
-        setIsReady(true);
-      });
+      setTimeout(initPlayer, 500);
     };
     document.body.appendChild(script);
   }, []);
 
-  // Initialize player and load tracks
-  useEffect(() => {
-    if (!isReady || !iframeRef.current || !window.SC) return;
+  const initPlayer = () => {
+    if (!iframeRef.current || !window.SC?.Widget) return;
 
     const widget = window.SC.Widget(iframeRef.current);
     widgetRef.current = widget;
 
-    // Listen for track changes
     widget.bind(window.SC.Widget.Events.READY, () => {
-      widget.bind(window.SC.Widget.Events.FINISH, () => {
-        // Auto-play next when track ends
-        loadRandomTrack(widget);
-      });
-
-      widget.bind(
-        window.SC.Widget.Events.PLAY_PROGRESS,
-        ({ relativePosition }) => {
-          if (onTimeUpdate) {
-            onTimeUpdate(relativePosition / 1000);
-          }
-        }
-      );
+      console.log("SoundCloud widget ready");
+      setTrackLoaded(false);
+      loadRandomTrack();
 
       widget.bind(window.SC.Widget.Events.PLAY, () => {
         setPlaying(true);
+        setTrackLoaded(true);
         widget.getCurrentSound((sound) => {
-          setCurrentTrack(sound.title);
+          setCurrentTrack(sound?.title || "Playing...");
         });
       });
 
@@ -65,46 +61,48 @@ export default function SoundCloudPlayer({
         setPlaying(false);
       });
 
-      // Load first track
-      loadRandomTrack(widget);
-    });
-  }, [isReady, onTimeUpdate, setPlaying]);
+      widget.bind(window.SC.Widget.Events.FINISH, () => {
+        setTrackLoaded(false);
+        loadRandomTrack();
+      });
 
-  const loadRandomTrack = async (widget) => {
-    const artist = ARTISTS[Math.floor(Math.random() * ARTISTS.length)];
-    const query = artist;
-
-    try {
-      const response = await fetch(
-        `https://soundcloud.com/oembed?format=json&url=https://soundcloud.com/search?q=${encodeURIComponent(query)}&show_reposts=false`
+      widget.bind(
+        window.SC.Widget.Events.PLAY_PROGRESS,
+        ({ relativePosition }) => {
+          if (onTimeUpdate && relativePosition < 500000) {
+            onTimeUpdate(relativePosition / 1000);
+          }
+        }
       );
+    });
 
-      // Alternative: Use a direct API call (requires OAuth in production, but works for public streams)
-      // For now, we'll use pre-built SoundCloud URLs for these artists
+    widget.bind(window.SC.Widget.Events.ERROR, (err) => {
+      console.error("SoundCloud error:", err);
+    });
+  };
 
-      const artistUrls = {
-        "Aphex Twin": "https://soundcloud.com/aphex-twin",
-        Deftones: "https://soundcloud.com/deftones",
-        "Boards of Canada": "https://soundcloud.com/boards-of-canada",
-      };
-
-      const url = artistUrls[artist];
-      if (url) {
-        widget.load(url, {
-          show_reposts: false,
-          auto_play: true,
-        });
-      }
-    } catch (err) {
-      console.error("Failed to load track:", err);
-    }
+  const loadRandomTrack = () => {
+    if (!widgetRef.current) return;
+    const artist = ARTISTS[Math.floor(Math.random() * ARTISTS.length)];
+    const url = ARTIST_URLS[artist];
+    console.log("Loading:", artist, url);
+    widgetRef.current.load(url, { show_reposts: false, auto_play: true });
   };
 
   const handlePlayPause = () => {
-    if (!widgetRef.current) return;
+    if (!widgetRef.current) {
+      console.error("Widget not initialized");
+      return;
+    }
+    if (!trackLoaded) {
+      console.log("Track still loading, please wait...");
+      return;
+    }
     if (playing) {
+      console.log("Pausing");
       widgetRef.current.pause();
     } else {
+      console.log("Playing");
       widgetRef.current.play();
     }
   };
@@ -147,17 +145,19 @@ export default function SoundCloudPlayer({
         )}
         <button
           onClick={handlePlayPause}
+          disabled={!trackLoaded}
           style={{
             padding: "8px 12px",
-            background: playing ? "#d43d2a" : "transparent",
+            background: !trackLoaded ? "rgba(240, 238, 230, 0.2)" : playing ? "#d43d2a" : "transparent",
             color: "#f0eee6",
             border: "1px solid #f0eee6",
-            cursor: "pointer",
+            cursor: trackLoaded ? "pointer" : "not-allowed",
             fontFamily: "IBM Plex Mono",
             fontSize: "11px",
+            opacity: trackLoaded ? 1 : 0.5,
           }}
         >
-          {playing ? "PAUSE" : "PLAY"}
+          {!trackLoaded ? "LOADING" : playing ? "PAUSE" : "PLAY"}
         </button>
       </div>
     </>
