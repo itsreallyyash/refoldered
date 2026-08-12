@@ -12,12 +12,26 @@ import { useEffect, useRef, useState } from "react";
    createMediaElementSource + AnalyserNode need to expose the true
    waveform instead of silence. */
 
-// Two independent mirrors of the same dump; pooling them means a dead
-// file on one node just skips to a track on the other.
+// Two independent mirrors of the user18081971 dump plus the earlier
+// user48736353001 account's tracks. Pooling mirrors means a dead file on
+// one node just skips to a copy on the other; the pool is deduped by
+// cleaned title so the shuffle doesn't repeat itself.
 const ITEMS = [
   "AphexTwinAllUser18081971SoundcloudTracks",
   "aphex_twin_user18081971_soundcloud",
+  "user48736353001",
 ];
+
+// "017 - 0125 - Tha Milk Float.mp3" → "Tha Milk Float"
+// "1 Chink 101-187925716.mp3"       → "Chink 101"
+function cleanTitle(name) {
+  const t = name
+    .replace(/\.mp3$/i, "")
+    .replace(/^\d+[\s-]*\d*[\s-]*/, "") // leading index / date prefixes
+    .replace(/-\d{6,}$/, "") // trailing soundcloud ids
+    .trim();
+  return t || name.replace(/\.mp3$/i, "");
+}
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -33,6 +47,7 @@ export default function ArchiveAudio({
   onTrackChange,
   playing,
   setPlaying,
+  volume = 0.8,
 }) {
   const audioRef = useRef(null);
   const ctxRef = useRef(null);
@@ -44,11 +59,17 @@ export default function ArchiveAudio({
   onTrackChangeRef.current = onTrackChange;
   const [blocked, setBlocked] = useState(false);
 
+  // the scope's volume knob drives this
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
+
   useEffect(() => {
     let cancelled = false;
     const audio = new Audio();
     audio.crossOrigin = "anonymous"; // required or the analyser reads silence
     audio.preload = "auto";
+    audio.volume = volume;
     audioRef.current = audio;
     if (typeof window !== "undefined") window.__archiveAudio = audio; // debug handle
 
@@ -118,7 +139,19 @@ export default function ArchiveAudio({
       ctxRef.current.resume();
       if (audio.paused) load(idxRef.current, true);
     };
-    if (controlRef) controlRef.current = { start };
+    if (controlRef)
+      controlRef.current = {
+        start,
+        // scope front-panel controls
+        setPower: (on) => {
+          if (on) {
+            ctxRef.current?.resume();
+            audio.play().catch(() => {});
+          } else {
+            audio.pause();
+          }
+        },
+      };
 
     Promise.allSettled(
       ITEMS.map((item) =>
@@ -129,11 +162,7 @@ export default function ArchiveAudio({
               .filter((f) => f.name && f.name.toLowerCase().endsWith(".mp3"))
               .map((f) => ({
                 url: `https://archive.org/download/${item}/${encodeURIComponent(f.name)}`,
-                // "017 - 0125 - Tha Milk Float.mp3" → "Tha Milk Float"
-                title: f.name
-                  .replace(/\.mp3$/i, "")
-                  .replace(/^\d+[\s-]*\d*[\s-]*/, "")
-                  .trim() || f.name.replace(/\.mp3$/i, ""),
+                title: cleanTitle(f.name),
               }))
           )
       )
@@ -141,7 +170,14 @@ export default function ArchiveAudio({
       if (cancelled) return;
       const pool = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
       if (!pool.length) return;
-      listRef.current = shuffle(pool);
+      const seen = new Set();
+      const unique = pool.filter((t) => {
+        const key = t.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      listRef.current = shuffle(unique);
       if (pendingStartRef.current) {
         pendingStartRef.current = false;
         start();

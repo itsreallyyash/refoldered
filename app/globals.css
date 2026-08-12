@@ -1,11 +1,11 @@
 :root {
-  --black: #070706;
+  --black: #000000;
   --ink: rgba(240, 238, 230, 0.92);
   --ink-mid: rgba(240, 238, 230, 0.6);
   --ink-dim: rgba(240, 238, 230, 0.35);
   --red: #d43d2a;
   --red-dim: rgba(212, 61, 42, 0.5);
-  --blood: #1d0503;
+  --blood: #3a0606;
   --poster-scale: 1;
 }
 
@@ -91,6 +91,8 @@ body {
   position: absolute;
   inset: 0;
   z-index: 1;
+  /* purely decorative: must never swallow hover from the pieces on top */
+  pointer-events: none;
 }
 .towerWrap,
 .flipLabel,
@@ -100,7 +102,7 @@ body {
 .holdingWrap,
 .pillsPos,
 .flyerPos,
-.ticketPos,
+.lipsPos,
 .chemPos,
 .siteTitle {
   z-index: 2;
@@ -111,54 +113,115 @@ body {
   position: fixed;
   inset: -4px;
   filter: url(#grainFilter);
-  opacity: 0.45;
+  opacity: 0.26; /* kept low so the black stays black */
   mix-blend-mode: screen;
   pointer-events: none;
   z-index: 30;
 }
+/* blood: hard-edged pools with satellite droplets, not soft fog */
 .stain {
   position: absolute;
   pointer-events: none;
-  mix-blend-mode: screen;
 }
 .stA {
-  top: -40px;
-  right: 30px;
+  top: -30px;
+  right: 40px;
   width: 300px;
   height: 260px;
   background:
-    radial-gradient(circle at 60% 30%, var(--blood) 0%, transparent 55%),
-    radial-gradient(circle at 30% 70%, var(--blood) 0%, transparent 45%),
-    radial-gradient(circle at 80% 75%, #250703 0%, transparent 40%);
-  opacity: 0.95;
+    radial-gradient(circle at 58% 32%, #4a0808 0 26%, #2a0404 34%, transparent 37%),
+    radial-gradient(circle at 30% 62%, #3a0606 0 12%, transparent 15%),
+    radial-gradient(circle at 78% 66%, #420707 0 8%, transparent 11%),
+    radial-gradient(circle at 14% 38%, #330505 0 5%, transparent 8%),
+    radial-gradient(circle at 88% 44%, #2d0505 0 3.5%, transparent 6%);
+  opacity: 0.9;
 }
 .stB {
-  top: 220px;
-  left: -60px;
-  width: 240px;
+  top: 240px;
+  left: -50px;
+  width: 260px;
   height: 420px;
   background:
-    radial-gradient(circle at 30% 20%, var(--blood) 0%, transparent 50%),
-    radial-gradient(circle at 60% 60%, #230602 0%, transparent 45%);
+    radial-gradient(ellipse 42% 30% at 34% 26%, #3f0707 0 58%, transparent 64%),
+    radial-gradient(circle at 62% 52%, #330505 0 9%, transparent 12%),
+    radial-gradient(circle at 46% 70%, #2c0404 0 6%, transparent 9%),
+    radial-gradient(circle at 70% 84%, #380606 0 4%, transparent 7%);
   opacity: 0.85;
 }
 .stC {
-  bottom: -50px;
-  right: -40px;
+  bottom: -40px;
+  right: -30px;
   width: 380px;
   height: 320px;
   background:
-    radial-gradient(circle at 40% 60%, var(--blood) 0%, transparent 50%),
-    radial-gradient(circle at 75% 30%, #2a0804 0%, transparent 45%);
-  opacity: 0.95;
+    radial-gradient(circle at 42% 58%, #440707 0 22%, #250404 30%, transparent 34%),
+    radial-gradient(circle at 72% 30%, #380606 0 10%, transparent 13%),
+    radial-gradient(circle at 22% 34%, #300505 0 6%, transparent 9%),
+    radial-gradient(circle at 60% 86%, #3c0606 0 5%, transparent 8%);
+  opacity: 0.92;
 }
 .stD {
-  bottom: 120px;
-  left: 340px;
-  width: 160px;
-  height: 120px;
-  background: radial-gradient(circle, var(--blood) 0%, transparent 60%);
-  opacity: 0.6;
+  bottom: 130px;
+  left: 330px;
+  width: 180px;
+  height: 130px;
+  background:
+    radial-gradient(circle at 50% 50%, #360606 0 18%, transparent 24%),
+    radial-gradient(circle at 24% 30%, #2c0505 0 7%, transparent 11%),
+    radial-gradient(circle at 78% 68%, #300505 0 5%, transparent 9%);
+  opacity: 0.8;
+}
+
+/* cut-up blocks: pieces of the page sheared out of register */
+.cut {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4;
+  background: #000;
+}
+.cutA {
+  top: 58px;
+  right: 170px;
+  width: 170px;
+  height: 30px;
+  border: 1.5px dashed rgba(240, 238, 230, 0.35);
+  transform: rotate(-2.4deg) translate(8px, 6px);
+}
+.cutA::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 13px;
+  width: 120%;
+  height: 1px;
+  background: rgba(212, 61, 42, 0.55);
+  transform: rotate(1deg);
+}
+.cutB {
+  left: 2px;
+  top: 470px;
+  width: 24px;
+  height: 150px;
+  border: 1.5px dashed rgba(240, 238, 230, 0.3);
+  transform: translateX(9px) rotate(1.6deg);
+}
+.cutC {
+  bottom: 46px;
+  right: 420px;
+  width: 130px;
+  height: 20px;
+  border: 1.5px dashed rgba(240, 238, 230, 0.3);
+  transform: rotate(2.2deg) translateY(7px);
+}
+.cutC::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: -6px;
+  width: 1px;
+  height: 32px;
+  background: rgba(212, 61, 42, 0.5);
+  transform: rotate(-14deg);
 }
 
 /* ---------- HEADER ---------- */
@@ -430,6 +493,18 @@ body {
 .scopeBtn.on {
   stroke: var(--red);
 }
+.knobGrab {
+  cursor: ns-resize;
+}
+.knobGrab:active .knobPointer {
+  stroke: var(--red);
+}
+.powerCtl {
+  cursor: pointer;
+}
+.powerCtl:hover .scopeLabel {
+  fill: var(--ink);
+}
 
 /* ---------- TAGS / EXTRAS ---------- */
 /* both paper artifacts drift in place like they're pinned to nothing */
@@ -466,17 +541,22 @@ body {
 .flyerLink:hover .flyerCanvas {
   border-color: var(--red);
 }
-.ticketPos {
+.lipsPos {
   position: absolute;
-  left: 1040px;
-  top: 680px;
-  width: 175px;
+  left: 1046px;
+  top: 700px;
+  width: 210px;
   animation: floatTicket 9.5s ease-in-out infinite 1.4s;
 }
-.ticketSvg {
-  width: 100%;
-  height: auto;
-  filter: drop-shadow(0 14px 16px rgba(0, 0, 0, 0.6));
+.lipsCanvas {
+  display: block;
+  cursor: pointer;
+  transition: filter 0.35s ease;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.7));
+}
+.lipsCanvas.hot {
+  filter: drop-shadow(0 0 14px rgba(212, 61, 42, 0.8))
+    drop-shadow(0 0 36px rgba(212, 61, 42, 0.45));
 }
 .chemPos {
   position: absolute;
@@ -490,100 +570,13 @@ body {
 }
 .pillsPos {
   position: absolute;
-  left: 400px;
-  top: 802px;
-  width: 250px;
-  height: 150px;
+  left: 356px;
+  top: 778px;
+  width: 430px;
+  height: 210px;
 }
 .pillsCanvas {
   display: block;
-}
-
-.tornEdge {
-  fill: rgba(240, 238, 230, 0.02);
-  stroke: var(--ink);
-  stroke-width: 1.4;
-}
-.dashedBox {
-  fill: none;
-  stroke: var(--ink-mid);
-  stroke-width: 1;
-  stroke-dasharray: 5 4;
-}
-.tagLine {
-  stroke: var(--ink-dim);
-  stroke-width: 1.6;
-}
-.tagField {
-  font-size: 9.5px;
-  fill: var(--ink-dim);
-  font-family: inherit;
-  letter-spacing: 0.14em;
-}
-.tagFill {
-  font-size: 11px;
-  fill: var(--ink);
-  font-family: inherit;
-  letter-spacing: 0.12em;
-}
-.stampRing {
-  fill: none;
-  stroke: var(--red);
-  stroke-width: 1.4;
-  stroke-dasharray: 3 2;
-  opacity: 0.8;
-}
-.stampSmall {
-  font-size: 11px;
-  fill: var(--red);
-  font-family: inherit;
-  font-weight: 600;
-  opacity: 0.8;
-}
-.perfLine {
-  stroke: var(--ink-dim);
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-}
-.perfHole {
-  fill: #070706;
-  stroke: var(--ink-dim);
-  stroke-width: 0.8;
-}
-.admitText {
-  font-size: 11px;
-  fill: var(--ink-mid);
-  font-family: inherit;
-  letter-spacing: 0.4em;
-}
-.ticketFine {
-  font-size: 8px;
-  fill: var(--ink-dim);
-  font-family: inherit;
-  letter-spacing: 0.08em;
-}
-.ticketArc {
-  font-size: 21px;
-  fill: var(--ink);
-  font-family: inherit;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-}
-.smiley {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1.6;
-}
-.smileyDot {
-  fill: var(--ink);
-}
-.smileyMouth {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1.6;
-}
-.barcode {
-  fill: var(--ink-mid);
 }
 
 .chemBond {

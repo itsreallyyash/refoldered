@@ -887,8 +887,10 @@ function drawCover(key, g, S) {
   }
 }
 
-function AlbumArtCanvas() {
+function AlbumArtCanvas({ spin }) {
   const ref = useRef(null);
+  const spinRef = useRef(spin);
+  spinRef.current = spin;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -906,26 +908,62 @@ function AlbumArtCanvas() {
     src.height = 192;
     const g = src.getContext("2d");
 
-    ALBUMS.forEach((a, k) => {
+    // each cover's ASCII art pre-rendered to its own layer, so the
+    // hovered disc can be redrawn rotated every frame without paying
+    // for the char sampling again
+    const D = TOWER.discR * 2 + 8;
+    const layers = ALBUMS.map((a) => {
       g.clearRect(0, 0, 192, 192);
       drawCover(a.key, g, 192);
-      asciiCircle(
-        ctx,
-        src,
-        TOWER.discCx,
-        TOWER.discCy0 + k * TOWER.discDy,
-        TOWER.discR,
-        5,
-        "7px ui-monospace, Menlo, monospace"
-      );
+      const layer = document.createElement("canvas");
+      layer.width = D * DPR;
+      layer.height = D * DPR;
+      const lctx = layer.getContext("2d");
+      lctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      asciiCircle(lctx, src, D / 2, D / 2, TOWER.discR, 5, "7px ui-monospace, Menlo, monospace");
+      return layer;
     });
+
+    let raf;
+    let angle = 0;
+    let last = 0;
+
+    function draw() {
+      ctx.clearRect(0, 0, TOWER.w, TOWER.h);
+      layers.forEach((layer, k) => {
+        const cx = TOWER.discCx;
+        const cy = TOWER.discCy0 + k * TOWER.discDy;
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (k === spinRef.current) ctx.rotate(angle);
+        ctx.drawImage(layer, -D / 2, -D / 2, D, D);
+        ctx.restore();
+      });
+    }
+
+    function frame(ts) {
+      raf = requestAnimationFrame(frame);
+      const dt = last ? Math.min(80, ts - last) : 16;
+      last = ts;
+      if (spinRef.current >= 0) {
+        angle += dt * 0.0022; // ~1 rev / 2.9s, CD-player lazy
+        draw();
+      } else if (angle !== 0) {
+        angle = 0; // hover ended — snap the art upright once
+        draw();
+      }
+    }
+
+    draw();
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   return <canvas ref={ref} className="albumArtCanvas" />;
 }
 
 /* ================= CD CHANGER (BeoSound-style wall unit) ================= */
-function TowerSVG({ active, haunt }) {
+function TowerSVG({ active, haunt, onHover }) {
   const { discCx, discCy0, discDy, discR } = TOWER;
   return (
     <svg className="towerSvg" viewBox={`0 0 ${TOWER.w} ${TOWER.h}`}>
@@ -943,13 +981,22 @@ function TowerSVG({ active, haunt }) {
       {DISCS.map((_, k) => {
         const cy = discCy0 + k * discDy;
         const isActive = k === active;
+        const h = haunt ? haunt() : {};
         return (
           <a
             key={k}
             href={ALBUMS[k].url}
             target="_blank"
             rel="noopener noreferrer"
-            {...(haunt ? haunt() : {})}
+            {...h}
+            onMouseEnter={(e) => {
+              h.onMouseEnter?.(e);
+              onHover?.(k);
+            }}
+            onMouseLeave={(e) => {
+              h.onMouseLeave?.(e);
+              onHover?.(-1);
+            }}
           >
             <g className={isActive ? "towerDisc active" : "towerDisc"}>
               <circle cx={discCx} cy={cy} r={discR} className="discOuter" />
@@ -1007,9 +1054,26 @@ function Knob({ cx, cy, r, angle = -40 }) {
   );
 }
 
-function ScopeSVG({ playing, vpp, vrms, freq, title }) {
+function ScopeSVG({ playing, vpp, vrms, freq, title, volume, onVolume, power, onPower }) {
+  // volume knob: grab and drag vertically, like turning a real pot
+  const dragRef = useRef(null);
+  function knobDown(e) {
+    e.preventDefault();
+    dragRef.current = { y: e.clientY, v: volume };
+    const move = (ev) => {
+      const d = dragRef.current;
+      onVolume(Math.max(0, Math.min(1, d.v + (d.y - ev.clientY) * 0.006)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+  const on = playing && power;
   return (
-    <svg className={`scopeSvg${playing ? " playing" : ""}`} viewBox="0 0 560 420">
+    <svg className={`scopeSvg${on ? " playing" : ""}`} viewBox="0 0 560 420">
       {/* body */}
       <rect x="4" y="4" width="552" height="392" rx="14" className="scopeBody" />
       <rect x="10" y="10" width="540" height="380" rx="10" className="scopeBodyInner" />
@@ -1036,14 +1100,20 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
       <text x="26" y="314" className="scopeTiny">0%</text>
       {/* screen header / footer */}
       <text x="52" y="76" className="scopeText">CH1  1.00V   5.00ms</text>
-      <text x="300" y="76" className={playing ? "scopeTextRed" : "scopeText"}>{playing ? "RUN" : "STOP"}</text>
-      <text x="52" y="290" className={playing ? "scopeTitle live" : "scopeTitle"}>
-        {playing ? "▶ " : "■ "}
-        {title}
+      <text x="300" y="76" className={on ? "scopeTextRed" : "scopeText"}>
+        {power ? (playing ? "RUN" : "STOP") : "OFF"}
       </text>
-      <text x="52" y="306" className="scopeText">
-        Vpp {vpp}  Vrms {vrms}  {freq}
-      </text>
+      {power && (
+        <>
+          <text x="52" y="290" className={on ? "scopeTitle live" : "scopeTitle"}>
+            {on ? "▶ " : "■ "}
+            {title}
+          </text>
+          <text x="52" y="306" className="scopeText">
+            Vpp {vpp}  Vrms {vrms}  {freq}
+          </text>
+        </>
+      )}
       {/* right panel */}
       <line x1="368" y1="20" x2="368" y2="380" className="scopeDivider" />
       <text x="462" y="38" textAnchor="middle" className="scopeLabelBig">TYPE 465</text>
@@ -1067,18 +1137,24 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
       <text x="506" y="222" textAnchor="middle" className="scopeTiny">AC GND DC</text>
       <line x1="380" y1="232" x2="546" y2="232" className="scopeDivider" />
 
-      <text x="462" y="248" textAnchor="middle" className="scopeLabel">HORIZONTAL</text>
-      <text x="462" y="262" textAnchor="middle" className="scopeTiny">TIME/DIV</text>
-      <Knob cx={462} cy={292} r={20} angle={70} />
-      <text x="424" y="286" textAnchor="middle" className="scopeTiny">.5</text>
-      <text x="432" y="272" textAnchor="middle" className="scopeTiny">1</text>
-      <text x="497" y="272" textAnchor="middle" className="scopeTiny">3</text>
-      <text x="502" y="288" textAnchor="middle" className="scopeTiny">5</text>
-      <text x="424" y="322" textAnchor="middle" className="scopeTiny">ms</text>
-      <text x="500" y="322" textAnchor="middle" className="scopeTiny">µs</text>
+      <text x="462" y="248" textAnchor="middle" className="scopeLabel">OUTPUT</text>
+      <text x="462" y="262" textAnchor="middle" className="scopeTiny">VOLUME</text>
+      <g onPointerDown={knobDown} className="knobGrab">
+        <Knob cx={462} cy={292} r={20} angle={-135 + volume * 270} />
+        <circle cx={462} cy={292} r={27} fill="transparent" />
+      </g>
+      <text x="424" y="286" textAnchor="middle" className="scopeTiny">2</text>
+      <text x="432" y="272" textAnchor="middle" className="scopeTiny">4</text>
+      <text x="497" y="272" textAnchor="middle" className="scopeTiny">8</text>
+      <text x="502" y="288" textAnchor="middle" className="scopeTiny">10</text>
+      <text x="424" y="322" textAnchor="middle" className="scopeTiny">min</text>
+      <text x="500" y="322" textAnchor="middle" className="scopeTiny">max</text>
 
-      <text x="500" y="368" className="scopeLabel">POWER</text>
-      <circle cx="546" cy="364" r="4" className={playing ? "scopeLed on" : "scopeLed"} />
+      <g onClick={onPower} className="powerCtl">
+        <text x="500" y="368" className="scopeLabel">POWER</text>
+        <circle cx="546" cy="364" r="4" className={on ? "scopeLed on" : "scopeLed"} />
+        <rect x="492" y="352" width="64" height="22" fill="transparent" />
+      </g>
 
       {/* bottom strip */}
       <text x="60" y="352" className="scopeTiny">TRIGGER</text>
@@ -1086,7 +1162,7 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
       <text x="112" y="357" className="scopeTiny">CH1</text>
       <text x="138" y="357" className="scopeTiny">CH2</text>
       <text x="164" y="357" className="scopeTiny">LINE</text>
-      <rect x="108" y="348" width="22" height="11" className={playing ? "scopeBtn on" : "scopeBtn"} />
+      <rect x="108" y="348" width="22" height="11" className={on ? "scopeBtn on" : "scopeBtn"} />
       <text x="220" y="352" className="scopeTiny">LEVEL</text>
       <Knob cx={232} cy={372} r={11} angle={-10} />
       <text x="280" y="352" className="scopeTiny">SLOPE</text>
@@ -1104,10 +1180,12 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
    of the speakers — nothing synthesized. Classic scope trigger (first
    rising zero-crossing) holds the display steady; bass energy from the
    FFT blooms the beam; Vpp/Vrms/frequency are measured off the buffer. */
-function ScopeScreen({ analyserRef, playing, onMeasure }) {
+function ScopeScreen({ analyserRef, playing, power, onMeasure }) {
   const ref = useRef(null);
   const playingRef = useRef(playing);
   playingRef.current = playing;
+  const powerRef = useRef(power);
+  powerRef.current = power;
   const measureRef = useRef(onMeasure);
   measureRef.current = onMeasure;
 
@@ -1139,13 +1217,25 @@ function ScopeScreen({ analyserRef, playing, onMeasure }) {
     function frame(now) {
       raf = requestAnimationFrame(frame);
       const an = analyserRef.current;
-      const live = !!(playingRef.current && an);
+      const pw = powerRef.current;
+      const live = !!(playingRef.current && an && pw);
 
       // fade the phosphor
       tctx.globalCompositeOperation = "destination-out";
       tctx.fillStyle = `rgba(0,0,0,${live ? 0.34 : 0.3})`;
       tctx.fillRect(0, 0, W, H);
       tctx.globalCompositeOperation = "source-over";
+
+      // powered down: no beam at all — the last trace decays into the dark
+      if (!pw) {
+        ctx.clearRect(0, 0, W, H);
+        ctx.drawImage(trail, 0, 0);
+        if (now - lastMeasure > 250 && measureRef.current) {
+          lastMeasure = now;
+          measureRef.current({ vpp: "--.-", vrms: "--.-", freq: "---" });
+        }
+        return;
+      }
 
       let trig = 0;
       let bass = 0;
@@ -1387,53 +1477,161 @@ function RaveFlyer() {
   );
 }
 
-/* ================= EUPHORIA TICKET =================
-   A club admission ticket: perforated tear-off stub with ADMIT ONE,
-   serial number, wobbling barcode, red date stamp — floats in place. */
-function EuphoriaTicket() {
+/* ================= CUT LIP IMPRINT =================
+   A lipstick kiss pressed onto the page, typed in ASCII — creased,
+   stippled like a real imprint, with a slit cut across the lower lip.
+   Hover and the whole kiss heats up glowing red. */
+function AsciiLips() {
+  const [hot, setHot] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const W = 210;
+    const H = 150;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // ---- grayscale kiss print ----
+    const off = document.createElement("canvas");
+    off.width = W;
+    off.height = H;
+    const g = off.getContext("2d");
+
+    // mouth line: corners at x=16/194, dipping under the cupid's bow
+    const L = 16;
+    const R = 194;
+    const MY = 76;
+    const mouthY = (x) => {
+      const t = (x - L) / (R - L);
+      return MY + Math.sin(t * Math.PI) * 5;
+    };
+
+    // upper lip with a real cupid's bow: two peaks, a notch between them
+    const upper = new Path2D();
+    upper.moveTo(L, MY);
+    upper.bezierCurveTo(44, 46, 74, 34, 90, 46); // left peak
+    upper.quadraticCurveTo(105, 58, 120, 46); // philtrum notch
+    upper.bezierCurveTo(136, 34, 166, 46, R, MY); // right peak
+    upper.bezierCurveTo(150, 84, 60, 84, L, MY);
+    // fuller lower lip
+    const lower = new Path2D();
+    lower.moveTo(L, MY);
+    lower.bezierCurveTo(60, 84, 150, 84, R, MY);
+    lower.bezierCurveTo(174, 118, 140, 138, 105, 138);
+    lower.bezierCurveTo(70, 138, 36, 118, L, MY);
+
+    let lg = g.createLinearGradient(0, 34, 0, 80);
+    lg.addColorStop(0, "#9a9a9a");
+    lg.addColorStop(0.55, "#c8c8c8");
+    lg.addColorStop(1, "#6e6e6e");
+    g.fillStyle = lg;
+    g.fill(upper);
+    lg = g.createLinearGradient(0, 78, 0, 140);
+    lg.addColorStop(0, "#7c7c7c");
+    lg.addColorStop(0.42, "#e0e0e0"); // highlight where the lip catches light
+    lg.addColorStop(1, "#5e5e5e");
+    g.fillStyle = lg;
+    g.fill(lower);
+
+    // vertical lip creases, fanning from the mouth line and clipped to
+    // the lips so they never run off the shape
+    g.save();
+    const both = new Path2D();
+    both.addPath(upper);
+    both.addPath(lower);
+    g.clip(both);
+    g.strokeStyle = "rgba(0,0,0,0.55)";
+    for (let k = 0; k <= 30; k++) {
+      const t = k / 30;
+      const x = L + 6 + t * (R - L - 12);
+      const bow = Math.sin(t * Math.PI);
+      const my = mouthY(x);
+      const lean = (t - 0.5) * 14;
+      g.lineWidth = 0.8 + hash2(k, 5) * 0.7;
+      g.beginPath();
+      g.moveTo(x, my - 2);
+      g.lineTo(x + lean * 0.3, my - 6 - bow * (14 + hash2(k, 9) * 10));
+      g.stroke();
+      g.beginPath();
+      g.moveTo(x, my + 2);
+      g.lineTo(x + lean * 0.5, my + 8 + bow * (20 + hash2(k, 13) * 14));
+      g.stroke();
+    }
+    // dark mouth line itself
+    g.strokeStyle = "rgba(0,0,0,0.75)";
+    g.lineWidth = 2.6;
+    g.beginPath();
+    g.moveTo(L, MY);
+    g.bezierCurveTo(60, MY + 9, 150, MY + 9, R, MY);
+    g.stroke();
+    g.restore();
+    // kiss-print stipple: press marks knocked out of the pigment
+    g.globalCompositeOperation = "destination-out";
+    for (let k = 0; k < 420; k++) {
+      const x = 12 + hash2(k, 3) * 186;
+      const y = 32 + hash2(k, 7) * 110;
+      g.beginPath();
+      g.arc(x, y, 0.5 + hash2(k, 11) * 1.7, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.globalCompositeOperation = "source-over";
+
+    // ---- type it ----
+    const img = g.getImageData(0, 0, W, H).data;
+    const RAMP = " .:-=+*#%@";
+    // the slit: a cut across the lower lip
+    const A = [86, 88];
+    const B = [134, 126];
+    const distToCut = (x, y) => {
+      const vx = B[0] - A[0];
+      const vy = B[1] - A[1];
+      const t = Math.max(0, Math.min(1, ((x - A[0]) * vx + (y - A[1]) * vy) / (vx * vx + vy * vy)));
+      const px = A[0] + vx * t;
+      const py = A[1] + vy * t;
+      return Math.hypot(x - px, y - py);
+    };
+
+    ctx.font = "700 7px ui-monospace, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const cell = 4;
+    for (let y = 0; y < H; y += cell) {
+      for (let x = 0; x < W; x += cell) {
+        const i = (y * W + x) * 4;
+        if (img[i + 3] < 40) continue;
+        const lum = img[i];
+        const ci = Math.min(RAMP.length - 1, Math.floor((lum / 255) * RAMP.length));
+        let ch = RAMP[ci];
+        if (ch === " ") continue;
+        const d = distToCut(x, y);
+        if (d < 2.4) continue; // the wound itself: open, black
+        if (d < 5.5) {
+          // cut edges bead up dark red; brighter when the kiss runs hot
+          ctx.fillStyle = hot ? "#ff2210" : "#8a1410";
+          ctx.fillText("#", x, y);
+          continue;
+        }
+        ctx.fillStyle = hot ? "#ff5a3a" : "rgba(240,238,230,0.9)";
+        ctx.fillText(ch, x, y);
+      }
+    }
+  }, [hot]);
+
   return (
-    <svg className="ticketSvg" viewBox="0 0 190 220">
-      <rect x="4" y="4" width="182" height="212" className="tornEdge" />
-      {/* perforated stub */}
-      <line x1="40" y1="6" x2="40" y2="214" className="perfLine" />
-      {[18, 40, 62, 84, 106, 128, 150, 172, 194].map((y) => (
-        <circle key={y} cx="40" cy={y} r="2.1" className="perfHole" />
-      ))}
-      <text x="24" y="110" className="admitText" transform="rotate(-90 24 110)">
-        ADMIT ONE
-      </text>
-      <rect x="50" y="12" width="128" height="196" className="dashedBox" />
-      <path id="euphArc" d="M 52,86 A 68,68 0 0 1 176,86" fill="none" />
-      <text className="ticketArc">
-        <textPath href="#euphArc" startOffset="50%" textAnchor="middle">
-          EUPHORIA
-        </textPath>
-      </text>
-      <text x="114" y="94" textAnchor="middle" className="ticketFine">ONE WAY · NO RE-ENTRY</text>
-      <circle cx="136" cy="132" r="24" className="smiley" />
-      <circle cx="128" cy="126" r="2.4" className="smileyDot" />
-      <circle cx="144" cy="126" r="2.4" className="smileyDot" />
-      <path d="M 125,140 A 14,14 0 0 0 147,140" className="smileyMouth" />
-      <text x="60" y="122" className="tagField">Nº</text>
-      <text x="60" y="136" className="tagFill">000819</text>
-      <line x1="60" y1="150" x2="102" y2="150" className="tagLine" />
-      <line x1="60" y1="160" x2="96" y2="160" className="tagLine" />
-      {/* date stamp, pressed crooked */}
-      <g transform="rotate(9 84 184)">
-        <circle cx="84" cy="184" r="15" className="stampRing" />
-        <text x="84" y="188" textAnchor="middle" className="stampSmall">'92</text>
-      </g>
-      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((k) => (
-        <rect
-          key={k}
-          x={106 + k * 6.5}
-          y="170"
-          width={[3, 1.5, 4.5, 2, 1.5, 5, 2, 3.5, 1.5, 2.5, 4][k]}
-          height="26"
-          className="barcode"
-        />
-      ))}
-    </svg>
+    <canvas
+      ref={ref}
+      className={hot ? "lipsCanvas hot" : "lipsCanvas"}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+    />
   );
 }
 
@@ -1554,55 +1752,116 @@ function ChemDiagram() {
 }
 
 /* ================= PILLS — HOVER TO BREAK =================
-   Each hover breaks the stash one stage further:
-   whole → halves → thirds → quarters → crumbs → powder lines.
-   Shaded grayscale → halftone dots with crisp linework on top — the same
-   engraving pipeline as the rest of the poster, re-rendered per stage. */
+   Hover story: whole pills → halves → thirds → quarters → crumbs →
+   powder lines, cut by an ASCII metal Amex. Stage changes tween over
+   ~380ms instead of snapping, and once it's powder every further hover
+   flicks more of it across the desk — furthest grains first.
+   Pills keep the grayscale→halftone engraving; the powder is drawn as
+   thousands of individual grains, and the card is typed through the
+   ASCII ramp from a shaded metal render. */
 function PillsBreak() {
-  const [stage, setStage] = useState(0);
+  const [stage, setStage] = useState(0); // 0 whole … 5 powder
+  const [scatter, setScatter] = useState(0); // hovers past powder
   const ref = useRef(null);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    const W = 250;
-    const H = 150;
+    const W = 430;
+    const H = 210;
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = W + "px";
     canvas.style.height = H + "px";
     const ctx = canvas.getContext("2d");
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.clearRect(0, 0, W, H);
 
     const off = document.createElement("canvas");
     off.width = W;
     off.height = H;
     const g = off.getContext("2d");
 
+    const OX = 44;
+    const OY = 16;
     const TABLETS = [
-      [50, 48, 24, 10, 14],
-      [104, 80, 20, 8, 12],
-      [46, 96, 17, 7, 10],
-      [88, 112, 14, 6, 8],
+      [OX + 50, OY + 48, 24, 10, 14],
+      [OX + 104, OY + 80, 20, 8, 12],
+      [OX + 46, OY + 96, 17, 7, 10],
+      [OX + 88, OY + 112, 14, 6, 8],
     ];
-    const CAP = { x: 178, y: 66, rot: (-28 * Math.PI) / 180, half: 33, r: 14 };
+    const CAP = { x: OX + 178, y: OY + 66, rot: (-28 * Math.PI) / 180, half: 33, r: 14 };
     const ink = "rgba(240,238,230,0.9)";
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
 
-    const dust = (cx, cy, spread, count, seed) => {
-      for (let k = 0; k < count; k++) {
-        const a = hash2(seed * 31 + k, stage) * Math.PI * 2;
-        const d = spread * (0.4 + hash2(seed * 17 + k, stage + 3) * 0.9);
-        const lum = 120 + Math.floor(hash2(k, seed) * 110);
-        g.fillStyle = `rgb(${lum},${lum},${lum})`;
-        g.beginPath();
-        g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.5, 0.7 + hash2(k * 3, seed) * 1.1, 0, Math.PI * 2);
-        g.fill();
+    /* ---- the cutter: a metal Amex, shaded then typed as ASCII ---- */
+    const CW = 150;
+    const CH = 96;
+    const card = document.createElement("canvas");
+    card.width = CW;
+    card.height = CH;
+    const cg = card.getContext("2d");
+    {
+      const lg = cg.createLinearGradient(0, 0, CW, CH);
+      lg.addColorStop(0, "#8f8f8f");
+      lg.addColorStop(0.42, "#e2e2e2");
+      lg.addColorStop(0.55, "#6f6f6f");
+      lg.addColorStop(1, "#bdbdbd");
+      cg.fillStyle = lg;
+      cg.beginPath();
+      cg.roundRect(4, 4, CW - 8, CH - 8, 8);
+      cg.fill();
+      cg.fillStyle = "#3a3a3a";
+      cg.fillRect(18, 32, 26, 20);
+      cg.strokeStyle = "#141414";
+      cg.lineWidth = 1.4;
+      cg.strokeRect(18, 32, 26, 20);
+      cg.beginPath();
+      cg.moveTo(18, 42);
+      cg.lineTo(44, 42);
+      cg.moveTo(31, 32);
+      cg.lineTo(31, 52);
+      cg.stroke();
+      cg.fillStyle = "#0e0e0e";
+      cg.font = "900 20px ui-monospace, Menlo, monospace";
+      cg.fillText("AMEX", 84, 27);
+      cg.font = "700 11px ui-monospace, Menlo, monospace";
+      cg.fillText("3782 8224 6310 005", 16, 70);
+      cg.font = "600 8px ui-monospace, Menlo, monospace";
+      cg.fillText("MEMBER SINCE ∞", 16, 85);
+      cg.fillText("R D JAMES", 100, 85);
+    }
+    const cardImg = cg.getImageData(0, 0, CW, CH).data;
+    const RAMP = " .:-=+*#%@";
+
+    const asciiCard = (x0, y0, rot, alpha) => {
+      ctx.save();
+      ctx.translate(x0, y0);
+      ctx.rotate(rot);
+      ctx.globalAlpha = alpha;
+      ctx.font = "700 6px ui-monospace, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(240,238,230,0.92)";
+      const cell = 4;
+      for (let y = 0; y < CH; y += cell) {
+        for (let x = 0; x < CW; x += cell) {
+          const i = (y * CW + x) * 4;
+          if (cardImg[i + 3] < 40) continue;
+          const ch = RAMP[Math.min(RAMP.length - 1, Math.floor((cardImg[i] / 255) * RAMP.length))];
+          if (ch === " ") continue;
+          ctx.fillText(ch, x - CW / 2, y - CH / 2);
+        }
       }
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.roundRect(-CW / 2 + 3, -CH / 2 + 3, CW - 6, CH - 6, 8);
+      ctx.stroke();
+      ctx.restore();
     };
 
-    // one broken wedge of a tablet: shade pass fills, line pass strokes
+    /* ---- shaded pieces (into g, halftoned later) ---- */
     const wedge = (target, mode, cx, cy, rx, ry, a0, a1, gap, jit) => {
       const am = (a0 + a1) / 2;
       target.save();
@@ -1627,17 +1886,15 @@ function PillsBreak() {
       target.restore();
     };
 
-    // capsule halves pulled apart along their axis; sep=0 means intact
     const capsule = (target, mode, sep, spill) => {
       target.save();
       target.translate(CAP.x, CAP.y);
       target.rotate(CAP.rot);
       const { half, r } = CAP;
-      const halves = [
+      [
         [-half - sep, [r, 0, 0, r]],
         [sep, [0, r, r, 0]],
-      ];
-      halves.forEach(([x0, radii]) => {
+      ].forEach(([x0, radii]) => {
         target.beginPath();
         target.roundRect(x0, -r, half, r * 2, radii);
         if (mode === "shade") {
@@ -1670,167 +1927,232 @@ function PillsBreak() {
       target.restore();
     };
 
-    const render = (target, mode) => {
-      if (stage === 0) {
-        TABLETS.forEach(([cx, cy, rx, ry, depth]) => {
-          if (mode === "shade") {
-            let grad = target.createLinearGradient(0, cy, 0, cy + depth + ry);
-            grad.addColorStop(0, "#8e8e8e");
-            grad.addColorStop(1, "#222222");
-            target.beginPath();
-            target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
-            target.lineTo(cx - rx, cy);
-            target.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);
-            target.closePath();
-            target.fillStyle = grad;
-            target.fill();
-            const tg = target.createRadialGradient(cx - rx / 3, cy - ry / 2, 1, cx, cy, rx);
-            tg.addColorStop(0, "#dcdcdc");
-            tg.addColorStop(1, "#6a6a6a");
-            target.beginPath();
-            target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-            target.fillStyle = tg;
-            target.fill();
-          } else {
-            target.strokeStyle = ink;
-            target.lineWidth = 1.1;
-            target.beginPath();
-            target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-            target.stroke();
-            target.beginPath();
-            target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
-            target.stroke();
-            target.beginPath();
-            target.moveTo(cx - rx * 0.6, cy);
-            target.lineTo(cx + rx * 0.6, cy);
-            target.strokeStyle = "rgba(240,238,230,0.5)";
-            target.lineWidth = 1;
-            target.stroke();
+    const dust = (cx, cy, spread, count, seed) => {
+      for (let k = 0; k < count; k++) {
+        const a = hash2(seed * 31 + k, 44) * Math.PI * 2;
+        const d = spread * (0.4 + hash2(seed * 17 + k, 47) * 0.9);
+        const lum = 120 + Math.floor(hash2(k, seed) * 110);
+        g.fillStyle = `rgb(${lum},${lum},${lum})`;
+        g.beginPath();
+        g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.5, 0.7 + hash2(k * 3, seed) * 1.1, 0, Math.PI * 2);
+        g.fill();
+      }
+    };
+
+    /* ---- powder: individual grains drawn crisp, no halftone ----
+       Each line is a ridge: grains cluster tightly at the spine with a
+       fine dust halo, clumps here and there, ragged ends. Scatter throws
+       grains off the spine — high-hash grains first, furthest. */
+    const LINES = [
+      [OX + 14, OY + 50, 195],
+      [OX + 4, OY + 84, 245],
+      [OX + 20, OY + 118, 215],
+      [OX + 40, OY + 148, 150],
+    ];
+    const drawPowder = (p, sc) => {
+      const spread = sc / 10; // 0..1
+      LINES.forEach(([x0, y0, len], li) => {
+        for (let gi = 0; gi < len * 2.2; gi++) {
+          const u = hash2(gi * 13 + li * 971, 3);
+          const x = x0 + u * len;
+          // taper density toward the ends of the line
+          const edge = Math.min(u, 1 - u) * 6;
+          if (hash2(gi * 7 + li * 331, 5) > Math.min(1, 0.25 + edge)) continue;
+          // gaussian-ish offset from the spine + a sparse dust halo
+          const g1 = hash2(gi * 3 + li, 11) + hash2(gi * 5 + li, 17) - 1;
+          const halo = hash2(gi * 11 + li, 23) < 0.12 ? (hash2(gi, 29) - 0.5) * 14 : 0;
+          let px = x;
+          let py = y0 + g1 * 2.6 + halo;
+          // clumps: occasional bigger crumbs sitting on the ridge
+          const clump = hash2(gi * 17 + li, 37) < 0.045;
+          let size = 0.45 + hash2(gi, 41) * 0.8 + (clump ? 1.1 : 0);
+          let alpha = 0.5 + hash2(gi, 43) * 0.5;
+          // scatter: throw this grain if its hash is under the level
+          const h = hash2(gi * 23 + li * 77, 53);
+          const df = Math.max(0, spread - h * 0.92);
+          if (df > 0) {
+            const ang = hash2(gi * 29 + li, 59) * Math.PI * 2;
+            px += Math.cos(ang) * df * 320;
+            py += Math.sin(ang) * df * 110 + df * 26;
+            alpha *= Math.max(0.15, 1 - df * 1.1);
+            size *= Math.max(0.5, 1 - df * 0.5);
           }
-        });
-        capsule(target, mode, 0, 0);
-      } else if (stage <= 3) {
-        const n = stage + 1;
-        TABLETS.forEach(([cx, cy, rx, ry], i) => {
-          const rot0 = hash2(i, 40 + stage) * Math.PI * 2;
-          for (let k = 0; k < n; k++) {
-            const a0 = rot0 + (k * 2 * Math.PI) / n;
-            const a1 = a0 + (2 * Math.PI) / n;
-            const gap = 4 + stage * 2.5 + hash2(i * 7 + k, stage) * 3;
-            const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3;
-            wedge(target, mode, cx, cy, rx, ry, a0, a1, gap, jit);
-          }
-          if (mode === "shade") dust(cx, cy, rx * 1.3, 5 * stage, i);
-        });
-        capsule(target, mode, 4 + stage * 5, stage * 9);
-      } else if (stage === 4) {
-        // crumbs: irregular shards scattered around each tablet's grave
-        TABLETS.forEach(([cx, cy, rx], i) => {
-          for (let k = 0; k < 7; k++) {
-            const a = hash2(i * 19 + k, 71) * Math.PI * 2;
-            const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1);
-            const px = cx + Math.cos(a) * d;
-            const py = cy + Math.sin(a) * d * 0.55;
-            const s = rx * (0.16 + hash2(i + k, 77) * 0.22);
-            const rr = hash2(i * 29 + k, 79) * Math.PI;
-            target.save();
-            target.translate(px, py);
-            target.rotate(rr);
-            target.beginPath();
-            target.moveTo(-s, 0);
-            target.lineTo(-s * 0.2, -s * 0.9);
-            target.lineTo(s, -s * 0.2);
-            target.lineTo(s * 0.5, s * 0.8);
-            target.closePath();
-            if (mode === "shade") {
-              const lum = 110 + Math.floor(hash2(k, i) * 110);
-              target.fillStyle = `rgb(${lum},${lum},${lum})`;
-              target.fill();
-            } else {
-              target.strokeStyle = ink;
-              target.lineWidth = 1;
-              target.stroke();
-            }
-            target.restore();
-          }
-          if (mode === "shade") dust(cx, cy, rx * 1.6, 26, i);
-        });
-        capsule(target, mode, 26, 30);
-      } else {
-        // powder: everything cut into lines
-        if (mode === "shade") {
-          const LINES = [
-            [30, 48, 150],
-            [24, 78, 190],
-            [36, 108, 160],
-            [52, 132, 120],
-          ];
-          LINES.forEach(([x0, y, len], li) => {
-            for (let x = 0; x < len; x += 1.6) {
-              const p = hash2(Math.floor(x * 3) + li * 997, li);
-              if (p > 0.78) continue;
-              const lum = 140 + Math.floor(hash2(Math.floor(x), li * 7) * 95);
-              target.fillStyle = `rgb(${lum},${lum},${lum})`;
-              target.beginPath();
-              target.arc(
-                x0 + x,
-                y + (hash2(Math.floor(x * 2), li * 13) - 0.5) * 3.4,
-                0.55 + p * 0.9,
-                0,
-                Math.PI * 2
-              );
-              target.fill();
-            }
-          });
-        } else {
-          // razor blade, linework only
-          target.save();
-          target.translate(206, 60);
-          target.rotate(-0.21);
-          target.strokeStyle = ink;
-          target.lineWidth = 1.2;
-          target.beginPath();
-          target.roundRect(-19, -12, 38, 24, 2.5);
-          target.stroke();
-          target.beginPath();
-          target.moveTo(-8, 0);
-          target.lineTo(8, 0);
-          target.stroke();
-          target.beginPath();
-          target.arc(0, -5.5, 2.2, 0, Math.PI * 2);
-          target.stroke();
-          target.restore();
+          // settle-in when the powder stage lands
+          py -= (1 - p) * 10;
+          const lum = 150 + Math.floor(hash2(gi, 61) * 85);
+          ctx.fillStyle = `rgba(${lum},${lum},${lum},${alpha * p})`;
+          ctx.beginPath();
+          ctx.arc(px, py, size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // heap at the head of each line
+        for (let k = 0; k < 46; k++) {
+          const a = hash2(k * 3 + li, 67) * Math.PI * 2;
+          const d = Math.pow(hash2(k * 7 + li, 71), 0.6) * 9;
+          const lum = 160 + Math.floor(hash2(k, 73) * 70);
+          ctx.fillStyle = `rgba(${lum},${lum},${lum},${0.75 * p * (1 - spread * 0.4)})`;
+          ctx.beginPath();
+          ctx.arc(x0 - 4 + Math.cos(a) * d, y0 + Math.sin(a) * d * 0.5, 0.6 + hash2(k, 79) * 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    };
+
+    const halftone = () => {
+      const img = g.getImageData(0, 0, W, H).data;
+      const CELL = 3;
+      ctx.fillStyle = "#e8e6de";
+      for (let y = 0; y < H; y += CELL) {
+        for (let x = 0; x < W; x += CELL) {
+          const i = (((y | 0) * W + (x | 0)) * 4) | 0;
+          const lum = img[i];
+          if (lum < 14) continue;
+          const r = CELL * 0.52 * Math.pow(lum / 255, 0.85);
+          if (r < 0.22) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     };
 
-    render(g, "shade");
+    const render = (p) => {
+      ctx.clearRect(0, 0, W, H);
+      g.clearRect(0, 0, W, H);
+      const e = ease(p);
 
-    // halftone the shaded pass
-    const img = g.getImageData(0, 0, W, H).data;
-    const CELL = 3;
-    ctx.fillStyle = "#e8e6de";
-    for (let y = 0; y < H; y += CELL) {
-      for (let x = 0; x < W; x += CELL) {
-        const i = (((y | 0) * W + (x | 0)) * 4) | 0;
-        const lum = img[i];
-        if (lum < 14) continue;
-        const r = CELL * 0.52 * Math.pow(lum / 255, 0.85);
-        if (r < 0.22) continue;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+      const pieces = (target, mode) => {
+        if (stage === 0) {
+          TABLETS.forEach(([cx, cy, rx, ry, depth]) => {
+            if (mode === "shade") {
+              let grad = target.createLinearGradient(0, cy, 0, cy + depth + ry);
+              grad.addColorStop(0, "#8e8e8e");
+              grad.addColorStop(1, "#222222");
+              target.beginPath();
+              target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+              target.lineTo(cx - rx, cy);
+              target.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);
+              target.closePath();
+              target.fillStyle = grad;
+              target.fill();
+              const tg = target.createRadialGradient(cx - rx / 3, cy - ry / 2, 1, cx, cy, rx);
+              tg.addColorStop(0, "#dcdcdc");
+              tg.addColorStop(1, "#6a6a6a");
+              target.beginPath();
+              target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+              target.fillStyle = tg;
+              target.fill();
+            } else {
+              target.strokeStyle = ink;
+              target.lineWidth = 1.1;
+              target.beginPath();
+              target.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+              target.stroke();
+              target.beginPath();
+              target.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+              target.stroke();
+              target.strokeStyle = "rgba(240,238,230,0.5)";
+              target.lineWidth = 1;
+              target.beginPath();
+              target.moveTo(cx - rx * 0.6, cy);
+              target.lineTo(cx + rx * 0.6, cy);
+              target.stroke();
+            }
+          });
+          capsule(target, mode, 0, 0);
+        } else if (stage <= 3) {
+          const n = stage + 1;
+          TABLETS.forEach(([cx, cy, rx, ry], i) => {
+            const rot0 = hash2(i, 40 + stage) * Math.PI * 2;
+            for (let k = 0; k < n; k++) {
+              const a0 = rot0 + (k * 2 * Math.PI) / n;
+              const a1 = a0 + (2 * Math.PI) / n;
+              // pieces start almost touching and ease apart — the break
+              // reads as motion instead of a jump-cut
+              const gapT = 4 + stage * 2.5 + hash2(i * 7 + k, stage) * 3;
+              const gap = gapT * (0.25 + 0.75 * e);
+              const jit = (hash2(i * 13 + k, stage) - 0.5) * 0.3 * e;
+              wedge(target, mode, cx, cy, rx, ry, a0, a1, gap, jit);
+            }
+            if (mode === "shade") dust(cx, cy, rx * 1.3 * e, Math.round(5 * stage * e), i);
+          });
+          capsule(target, mode, (4 + stage * 5) * (0.3 + 0.7 * e), Math.round(stage * 9 * e));
+        } else if (stage === 4) {
+          TABLETS.forEach(([cx, cy, rx], i) => {
+            for (let k = 0; k < 7; k++) {
+              const a = hash2(i * 19 + k, 71) * Math.PI * 2;
+              const d = rx * (0.3 + hash2(i * 23 + k, 73) * 1.1) * (0.4 + 0.6 * e);
+              const px = cx + Math.cos(a) * d;
+              const py = cy + Math.sin(a) * d * 0.55;
+              const s = rx * (0.16 + hash2(i + k, 77) * 0.22);
+              const rr = hash2(i * 29 + k, 79) * Math.PI * e;
+              target.save();
+              target.translate(px, py);
+              target.rotate(rr);
+              target.beginPath();
+              target.moveTo(-s, 0);
+              target.lineTo(-s * 0.2, -s * 0.9);
+              target.lineTo(s, -s * 0.2);
+              target.lineTo(s * 0.5, s * 0.8);
+              target.closePath();
+              if (mode === "shade") {
+                const lum = 110 + Math.floor(hash2(k, i) * 110);
+                target.fillStyle = `rgb(${lum},${lum},${lum})`;
+                target.fill();
+              } else {
+                target.strokeStyle = ink;
+                target.lineWidth = 1;
+                target.stroke();
+              }
+              target.restore();
+            }
+            if (mode === "shade") dust(cx, cy, rx * 1.6 * e, Math.round(26 * e), i);
+          });
+          capsule(target, mode, 26 * e, Math.round(30 * e));
+        }
+      };
+
+      if (stage < 5) {
+        pieces(g, "shade");
+        halftone();
+        pieces(ctx, "line");
+      } else {
+        drawPowder(e, scatter);
       }
-    }
 
-    render(ctx, "line");
-  }, [stage]);
+      // the card arrives with the first cut and stays on the job;
+      // it lies flatter once everything is powder
+      if (stage >= 1) {
+        const slide = stage === 1 ? (1 - e) * 70 : 0;
+        const cardX = stage === 5 ? W - 84 : W - 78 + slide;
+        const cardY = stage === 5 ? H - 62 : 66;
+        const rot = stage === 5 ? -0.09 : -0.24;
+        asciiCard(cardX, cardY, rot, stage === 1 ? e : 1);
+      }
+    };
+
+    // tween the stage change
+    let raf;
+    const t0 = performance.now();
+    const DUR = 380;
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / DUR);
+      render(p);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [stage, scatter]);
 
   return (
     <canvas
       ref={ref}
       className="pillsCanvas"
-      onMouseEnter={() => setStage((s) => (s >= 5 ? 5 : s + 1))}
+      onMouseEnter={() =>
+        stage < 5
+          ? setStage((s) => s + 1)
+          : setScatter((s) => Math.min(10, s + 1))
+      }
     />
   );
 }
@@ -1838,16 +2160,28 @@ function PillsBreak() {
 /* ================= PAGE ================= */
 export default function Home() {
   const [entered, setEntered] = useState(false);
-  const [activeSlot, setActiveSlot] = useState(0);
+  // which disc is engaged: the hovered one, or the first by default
+  const [hoverSlot, setHoverSlot] = useState(-1);
+  const activeSlot = hoverSlot >= 0 ? hoverSlot : 0;
   const [playing, setPlaying] = useState(false);
   const [trackTitle, setTrackTitle] = useState("");
   const [hauntTip, setHauntTip] = useState(null);
   // real scope readouts, measured off the analyser buffer
   const [meas, setMeas] = useState({ vpp: "--.-", vrms: "--.-", freq: "---" });
+  // scope front panel
+  const [volume, setVolume] = useState(0.8);
+  const [power, setPower] = useState(true);
 
-  const idleCounterRef = useRef(0);
   const analyserRef = useRef(null);
   const audioCtlRef = useRef(null);
+
+  function togglePower() {
+    setPower((p) => {
+      const next = !p;
+      audioCtlRef.current?.setPower(next);
+      return next;
+    });
+  }
 
   // poster scale-to-fit
   useEffect(() => {
@@ -1859,16 +2193,6 @@ export default function Home() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-
-  // disc rotation: cycles idly, independent of the audio source
-  useEffect(() => {
-    if (!entered) return;
-    const id = setInterval(() => {
-      idleCounterRef.current = (idleCounterRef.current + 1) % SLOT_COUNT;
-      setActiveSlot(idleCounterRef.current);
-    }, 1500);
-    return () => clearInterval(id);
-  }, [entered]);
 
   function enter() {
     if (entered) return;
@@ -1921,14 +2245,17 @@ export default function Home() {
           <div className="stain stB" />
           <div className="stain stC" />
           <div className="stain stD" />
+          <div className="cut cutA" />
+          <div className="cut cutB" />
+          <div className="cut cutC" />
 
           <div {...haunt("siteTitle")}>refoldered.com_</div>
 
           <SceneCanvas />
 
           <div className="towerWrap">
-            <AlbumArtCanvas />
-            <TowerSVG active={activeSlot} haunt={haunt} />
+            <AlbumArtCanvas spin={hoverSlot} />
+            <TowerSVG active={activeSlot} haunt={haunt} onHover={setHoverSlot} />
           </div>
 
           <div {...haunt("flipLabel")}>[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
@@ -1951,10 +2278,15 @@ export default function Home() {
               vrms={meas.vrms}
               freq={meas.freq}
               title={titleShown}
+              volume={volume}
+              onVolume={setVolume}
+              power={power}
+              onPower={togglePower}
             />
             <ScopeScreen
               analyserRef={analyserRef}
               playing={playing}
+              power={power}
               onMeasure={setMeas}
             />
           </div>
@@ -1978,8 +2310,8 @@ export default function Home() {
             <RaveFlyer />
           </div>
 
-          <div {...haunt("ticketPos")}>
-            <EuphoriaTicket />
+          <div {...haunt("lipsPos")}>
+            <AsciiLips />
           </div>
 
           <div {...haunt("chemPos")}>
@@ -2005,6 +2337,7 @@ export default function Home() {
         onTrackChange={setTrackTitle}
         playing={playing}
         setPlaying={setPlaying}
+        volume={volume}
       />
     </div>
   );
