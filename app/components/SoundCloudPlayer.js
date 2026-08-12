@@ -16,12 +16,16 @@ export default function SoundCloudPlayer({
 }) {
   const iframeRef = useRef(null);
   const widgetRef = useRef(null);
+  const initializedRef = useRef(false);
   const [currentTrack, setCurrentTrack] = useState("Loading...");
-  const [mounted, setMounted] = useState(false);
 
-  // Load SoundCloud Widget API
+  // Load SoundCloud Widget API. Guarded against React StrictMode's dev-only
+  // double-invoke, which would otherwise bind two widgets to the same
+  // iframe and race each other loading different tracks.
   useEffect(() => {
-    setMounted(true);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     if (window.SC?.Widget) {
       initPlayer();
       return;
