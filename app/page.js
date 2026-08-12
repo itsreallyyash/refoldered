@@ -41,12 +41,12 @@ const TOWER = {
 };
 
 const ALBUMS = [
-  { key: "deftones", url: "https://www.youtube.com/results?search_query=deftones+diamond+eyes+full+album" },
-  { key: "acdc", url: "https://www.youtube.com/results?search_query=ac+dc+back+in+black+full+album" },
-  { key: "aphex", url: "https://www.youtube.com/results?search_query=aphex+twin+selected+ambient+works+85-92" },
-  { key: "acid", url: "https://www.youtube.com/results?search_query=acid+house+classics+1988" },
-  { key: "floyd", url: "https://www.youtube.com/results?search_query=pink+floyd+dark+side+of+the+moon+full+album" },
-  { key: "lcd", url: "https://www.youtube.com/results?search_query=lcd+soundsystem+sound+of+silver+full+album" },
+  { key: "deftones", url: "/albums/deftones" },
+  { key: "acdc", url: "/albums/acdc" },
+  { key: "aphex", url: "/albums/aphex" },
+  { key: "acid", url: "/albums/acid" },
+  { key: "floyd", url: "/albums/floyd" },
+  { key: "lcd", url: "/albums/lcd" },
 ];
 
 function parseYouTube(url) {
@@ -1220,11 +1220,14 @@ export default function Home() {
     }
     try {
       playerRef.current = new window.YT.Player("yt-player-mount", config);
+      // fallback: if YouTube's postMessage fails due to CORS, onReady never fires.
+      // After 4s, assume API failure and simulate playback state for animations.
+      setTimeout(() => {
+        playerRef.current && setPlaying(true);
+      }, 4000);
     } catch (err) {
-      if (window.location.hostname === "localhost") {
-        // localhost: simulate playing state so scope animation works
-        setPlaying(true);
-      }
+      // player creation failed entirely; simulate for UI
+      setPlaying(true);
     }
   }
 
