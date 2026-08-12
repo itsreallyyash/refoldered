@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import SpotifyPlayer from "./components/SpotifyPlayer";
+import SoundCloudPlayer from "./components/SoundCloudPlayer";
 
 const YT_URL = "https://youtube.com/playlist?list=PLFHK1y8DXCMY";
 
@@ -1400,7 +1400,7 @@ export default function Home() {
 
       <div className="grain" />
 
-      <SpotifyPlayer
+      <SoundCloudPlayer
         onTimeUpdate={(t) => setMediaTime(t)}
         playing={playing}
         setPlaying={setPlaying}
