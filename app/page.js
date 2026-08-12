@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// Paste the YouTube video or playlist URL here.
-const YT_URL = "PLACEHOLDER_YOUTUBE_URL";
+const YT_URL = "https://www.youtube.com/watch?v=f0pdwd0miqs&list=PLFHK1y8DXCMY";
 
 function parseYouTube(url) {
   try {
@@ -42,8 +41,8 @@ function PillCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    const W = 380;
-    const H = 460;
+    const W = 420;
+    const H = 520;
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = W + "px";
@@ -58,14 +57,26 @@ function PillCanvas() {
 
     const cx = W / 2;
     const cy = H / 2;
-    const R = 168;
+    const R = 175;
+    const T = 84; // tablet thickness — the extruded rim that makes it a cylinder
 
-    function withDisc(c, mirror, xscale, fn) {
+    function withDisc(c, mirror, xscale, dx, fn) {
       c.save();
-      c.translate(cx, cy);
+      c.translate(cx + dx, cy);
       c.scale(mirror ? -xscale : xscale, 1);
       fn(c);
       c.restore();
+    }
+
+    // silhouette of the full cylinder: two face ellipses joined by tangents
+    function rimPath(c, xl, xr, rw) {
+      c.beginPath();
+      c.moveTo(xl, -R);
+      c.lineTo(xr, -R);
+      c.ellipse(xr, 0, rw, R, 0, -Math.PI / 2, Math.PI / 2);
+      c.lineTo(xl, R);
+      c.ellipse(xl, 0, rw, R, 0, Math.PI / 2, Math.PI * 1.5);
+      c.closePath();
     }
 
     // ---- Mercedes face: wide stippled band, black core, thin star ----
@@ -73,8 +84,8 @@ function PillCanvas() {
     const M_RING2 = R * 0.9;
     const M_IN = R * 0.66;
 
-    function mercMask(c, mirror, xscale) {
-      withDisc(c, mirror, xscale, (g) => {
+    function mercMask(c, mirror, xscale, dx) {
+      withDisc(c, mirror, xscale, dx, (g) => {
         g.beginPath();
         g.arc(0, 0, M_OUT, 0, Math.PI * 2);
         g.arc(0, 0, M_IN, 0, Math.PI * 2, true);
@@ -83,8 +94,8 @@ function PillCanvas() {
       });
     }
 
-    function mercForeground(c, mirror, xscale) {
-      withDisc(c, mirror, xscale, (g) => {
+    function mercForeground(c, mirror, xscale, dx) {
+      withDisc(c, mirror, xscale, dx, (g) => {
         g.strokeStyle = "#f0eee6";
         g.lineWidth = 2;
         g.beginPath();
@@ -128,8 +139,8 @@ function PillCanvas() {
     const B_BAND_IN = R * 0.72;
     const B_CORE = R * 0.68;
 
-    function bmwMask(c, mirror, xscale) {
-      withDisc(c, mirror, xscale, (g) => {
+    function bmwMask(c, mirror, xscale, dx) {
+      withDisc(c, mirror, xscale, dx, (g) => {
         g.fillStyle = "#ffffff";
         // letter band
         g.beginPath();
@@ -150,8 +161,8 @@ function PillCanvas() {
       });
     }
 
-    function bmwForeground(c, mirror, xscale) {
-      withDisc(c, mirror, xscale, (g) => {
+    function bmwForeground(c, mirror, xscale, dx) {
+      withDisc(c, mirror, xscale, dx, (g) => {
         g.strokeStyle = "#f0eee6";
         g.lineWidth = 2;
         g.beginPath();
@@ -180,7 +191,7 @@ function PillCanvas() {
       });
       // letters drawn unmirrored so they always read B-M-W left to right
       c.save();
-      c.translate(cx, cy);
+      c.translate(cx + dx, cy);
       c.scale(xscale, 1);
       c.fillStyle = "#f0eee6";
       c.font = '600 30px ui-monospace, Menlo, monospace';
@@ -230,22 +241,55 @@ function PillCanvas() {
       last = ts;
       theta += 0.045;
 
-      const xscale = Math.max(0.04, Math.abs(Math.cos(theta)));
-      const front = Math.cos(theta) >= 0;
+      const s = Math.sin(theta);
+      const c = Math.cos(theta);
+      const xscale = Math.max(0.04, Math.abs(c));
+      const front = c >= 0;
       const mirror = !front;
+
+      // projected face centers: face A (Mercedes) at +T/2·sinθ, face B at -T/2·sinθ
+      const xA = (T / 2) * s;
+      const xB = -(T / 2) * s;
+      const dx = front ? xA : xB; // center of the visible face
+      const xl = Math.min(xA, xB);
+      const xr = Math.max(xA, xB);
+      const rw = R * xscale;
 
       ctx.clearRect(0, 0, W, H);
       octx.clearRect(0, 0, W, H);
 
+      // rim (side wall of the tablet): mid-density stipple across the hull
+      octx.save();
+      octx.translate(cx, cy);
+      rimPath(octx, xl, xr, rw);
+      octx.fillStyle = "rgba(255,255,255,0.5)";
+      octx.fill();
+      // punch out the visible face so its own mask defines the tone there
+      octx.globalCompositeOperation = "destination-out";
+      octx.beginPath();
+      octx.ellipse(dx, 0, rw, R, 0, 0, Math.PI * 2);
+      octx.fill();
+      octx.globalCompositeOperation = "source-over";
+      octx.restore();
+
       if (front) {
-        mercMask(octx, mirror, xscale);
+        mercMask(octx, mirror, xscale, dx);
         halftoneConvert();
-        mercForeground(ctx, mirror, xscale);
+        mercForeground(ctx, mirror, xscale, dx);
       } else {
-        bmwMask(octx, mirror, xscale);
+        bmwMask(octx, mirror, xscale, dx);
         halftoneConvert();
-        bmwForeground(ctx, mirror, xscale);
+        bmwForeground(ctx, mirror, xscale, dx);
       }
+
+      // crisp silhouette of the whole cylinder
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = "#f0eee6";
+      ctx.lineWidth = 2;
+      rimPath(ctx, xl, xr, rw);
+      ctx.stroke();
+      ctx.restore();
     }
 
     raf = requestAnimationFrame(frame);
@@ -255,31 +299,242 @@ function PillCanvas() {
   return <canvas ref={canvasRef} className="pillCanvas" />;
 }
 
-/* ================= DOT-TRAIL FIELD ================= */
-function StreakField() {
-  let d = "";
-  const CW = 560;
-  const CH = 440;
-  const cx = CW / 2;
-  const cy = CH / 2;
-  for (let i = 0; i < 56; i++) {
-    for (let j = 0; j < 44; j++) {
-      const x = i * 10 + 5;
-      const y = j * 10 + 5;
-      const nx = (x - cx) / (CW / 2);
-      const ny = (y - cy) / (CH / 2);
-      const r2 = nx * nx + ny * ny;
-      if (r2 > 1) continue;
-      const h = hash2(i, j);
-      if (h < r2 * 0.85) continue;
-      d += `M${x},${y}h0.01`;
+/* ================= STATIC SCENE — grayscale render → halftone =================
+   Everything with volume (tower, scope chassis, knobs, pills, dot-trail) is
+   drawn as shaded grayscale geometry on an offscreen canvas, then converted
+   into a halftone dot field — same technique as the coin, so the whole
+   poster shares one engraved texture. Text and fine linework stay crisp
+   in the SVG overlays. */
+function SceneCanvas() {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const W = 1600;
+    const H = 1000;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    const off = document.createElement("canvas");
+    off.width = W;
+    off.height = H;
+    const g = off.getContext("2d");
+
+    const poly = (pts, fill) => {
+      g.beginPath();
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.closePath();
+      g.fillStyle = fill;
+      g.fill();
+    };
+
+    /* ---- CD tower (poster coords via tower svg scale 280/300) ---- */
+    const tX = (x) => 36 + x * 0.93333;
+    const tY = (y) => 76 + y * 0.93333;
+
+    let grad = g.createLinearGradient(tX(60), 0, tX(100), 0);
+    grad.addColorStop(0, "#464646");
+    grad.addColorStop(1, "#181818");
+    poly(
+      [
+        [tX(60), tY(46)],
+        [tX(100), tY(70)],
+        [tX(100), tY(690)],
+        [tX(60), tY(666)],
+      ],
+      grad
+    );
+    for (let k = 0; k < 43; k++) {
+      const y = 46 + k * 14.6;
+      g.strokeStyle = k % 2 ? "#8a8a8a" : "#222222";
+      g.lineWidth = 1.6;
+      g.beginPath();
+      g.moveTo(tX(60), tY(y));
+      g.lineTo(tX(100), tY(y + 24));
+      g.stroke();
     }
-  }
-  return (
-    <svg className="streakField" viewBox="0 0 560 440" aria-hidden="true">
-      <path d={d} strokeLinecap="round" />
-    </svg>
-  );
+    poly(
+      [
+        [tX(100), tY(70)],
+        [tX(60), tY(46)],
+        [tX(230), tY(46)],
+        [tX(270), tY(70)],
+      ],
+      "#4e4e4e"
+    );
+    grad = g.createLinearGradient(0, tY(70), 0, tY(690));
+    grad.addColorStop(0, "#343434");
+    grad.addColorStop(1, "#1a1a1a");
+    g.fillStyle = grad;
+    g.fillRect(tX(100), tY(70), 158.7, 578.7);
+
+    for (let k = 0; k < 6; k++) {
+      const cx = tX(185);
+      const cy = tY(140 + k * 100);
+      const r = 41;
+      const rg = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+      rg.addColorStop(0, "#101010");
+      rg.addColorStop(0.3, "#9a9a9a");
+      rg.addColorStop(0.4, "#4e4e4e");
+      rg.addColorStop(0.72, "#c8c8c8");
+      rg.addColorStop(0.95, "#dedede");
+      rg.addColorStop(1, "#5a5a5a");
+      g.beginPath();
+      g.arc(cx, cy, r, 0, Math.PI * 2);
+      g.fillStyle = rg;
+      g.fill();
+      // dark sheen wedges give the pressed-disc sparkle
+      [40, 160, 280].forEach((deg) => {
+        const a0 = ((deg - 9) * Math.PI) / 180;
+        const a1 = ((deg + 9) * Math.PI) / 180;
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.arc(cx, cy, r, a0, a1);
+        g.closePath();
+        g.fillStyle = "rgba(10,10,10,0.8)";
+        g.fill();
+      });
+      g.beginPath();
+      g.arc(cx, cy, 13, 0, Math.PI * 2);
+      g.fillStyle = "#060606";
+      g.fill();
+    }
+    g.fillStyle = "#3a3a3a";
+    g.fillRect(tX(112), tY(692), 26, 9.3);
+    g.fillRect(tX(230), tY(692), 26, 9.3);
+
+    /* ---- dot-trail field behind the coin ---- */
+    for (let y = 180; y <= 630; y += 9) {
+      for (let x = 380; x <= 990; x += 13) {
+        const dx = (x - 690) / 310;
+        const dy = (y - 405) / 235;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 1) continue;
+        const ix = (x - 660) / 208;
+        const iy = (y - 410) / 262;
+        if (ix * ix + iy * iy < 1) continue;
+        const b = 1 - d2;
+        const lum = Math.round(46 + 168 * b * (0.55 + 0.45 * hash2(x, y)));
+        g.fillStyle = `rgb(${lum},${lum},${lum})`;
+        g.fillRect(x, y, 7.5, 1.8);
+      }
+    }
+
+    /* ---- oscilloscope chassis (1:1 with scope svg at offset 1010,78) ---- */
+    const sX = (x) => 1010 + x;
+    const sY = (y) => 78 + y;
+    grad = g.createLinearGradient(0, sY(4), 0, sY(396));
+    grad.addColorStop(0, "#454545");
+    grad.addColorStop(0.5, "#2e2e2e");
+    grad.addColorStop(1, "#1c1c1c");
+    g.beginPath();
+    g.roundRect(sX(4), sY(4), 552, 392, 14);
+    g.fillStyle = grad;
+    g.fill();
+    // bezel + screen
+    g.beginPath();
+    g.roundRect(sX(26), sY(42), 330, 290, 10);
+    g.fillStyle = "#242424";
+    g.fill();
+    const srg = g.createRadialGradient(sX(191), sY(187), 30, sX(191), sY(187), 220);
+    srg.addColorStop(0, "#101010");
+    srg.addColorStop(1, "#040404");
+    g.fillStyle = srg;
+    g.fillRect(sX(42), sY(58), 298, 258);
+    // panel divider shadow
+    g.fillStyle = "#171717";
+    g.fillRect(sX(366), sY(16), 4, 368);
+    // knobs as shaded spheres
+    [
+      [418, 140, 16],
+      [506, 140, 16],
+      [462, 292, 20],
+      [232, 372, 11],
+    ].forEach(([kx, ky, kr]) => {
+      const kg = g.createRadialGradient(sX(kx) - kr / 3, sY(ky) - kr / 3, kr * 0.15, sX(kx), sY(ky), kr);
+      kg.addColorStop(0, "#e0e0e0");
+      kg.addColorStop(0.55, "#7a7a7a");
+      kg.addColorStop(1, "#1f1f1f");
+      g.beginPath();
+      g.arc(sX(kx), sY(ky), kr, 0, Math.PI * 2);
+      g.fillStyle = kg;
+      g.fill();
+    });
+    g.fillStyle = "#2e2e2e";
+    g.fillRect(sX(60), sY(398), 60, 12);
+    g.fillRect(sX(440), sY(398), 60, 12);
+
+    /* ---- pills (scale 250/240 at offset 400,810) ---- */
+    const ps = 1.04167;
+    const pX = (x) => 400 + x * ps;
+    const pY = (y) => 810 + y * ps;
+    const tablet = (cx, cy, rx, ry, depth) => {
+      const RX = rx * ps;
+      const RY = ry * ps;
+      const D = depth * ps;
+      grad = g.createLinearGradient(0, pY(cy), 0, pY(cy) + D + RY);
+      grad.addColorStop(0, "#8e8e8e");
+      grad.addColorStop(1, "#222222");
+      g.beginPath();
+      g.ellipse(pX(cx), pY(cy) + D, RX, RY, 0, 0, Math.PI);
+      g.lineTo(pX(cx) - RX, pY(cy));
+      g.ellipse(pX(cx), pY(cy), RX, RY, 0, Math.PI, 0, true);
+      g.closePath();
+      g.fillStyle = grad;
+      g.fill();
+      const tg = g.createRadialGradient(pX(cx) - RX / 3, pY(cy) - RY / 2, 1, pX(cx), pY(cy), RX);
+      tg.addColorStop(0, "#dcdcdc");
+      tg.addColorStop(1, "#6a6a6a");
+      g.beginPath();
+      g.ellipse(pX(cx), pY(cy), RX, RY, 0, 0, Math.PI * 2);
+      g.fillStyle = tg;
+      g.fill();
+    };
+    tablet(50, 44, 24, 10, 14);
+    tablet(104, 76, 20, 8, 12);
+    tablet(46, 92, 17, 7, 10);
+    tablet(88, 108, 14, 6, 8);
+    // capsule
+    g.save();
+    g.translate(pX(178), pY(62));
+    g.rotate((-28 * Math.PI) / 180);
+    grad = g.createLinearGradient(-33 * ps, 0, 33 * ps, 0);
+    grad.addColorStop(0, "#d2d2d2");
+    grad.addColorStop(0.5, "#8a8a8a");
+    grad.addColorStop(0.5001, "#5e5e5e");
+    grad.addColorStop(1, "#1e1e1e");
+    g.beginPath();
+    g.roundRect(-33 * ps, -14 * ps, 66 * ps, 28 * ps, 14 * ps);
+    g.fillStyle = grad;
+    g.fill();
+    g.restore();
+
+    /* ---- halftone conversion of the whole scene ---- */
+    const img = g.getImageData(0, 0, W, H).data;
+    const CELL = 3.4;
+    ctx.fillStyle = "#e8e6de";
+    for (let y = 0; y < H; y += CELL) {
+      for (let x = 0; x < W; x += CELL) {
+        const i = (((y | 0) * W + (x | 0)) * 4) | 0;
+        const lum = img[i];
+        if (lum < 14) continue;
+        const r = CELL * 0.52 * Math.pow(lum / 255, 0.85);
+        if (r < 0.22) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }, []);
+
+  return <canvas ref={ref} className="sceneCanvas" />;
 }
 
 /* ================= CD TOWER ================= */
@@ -289,7 +544,6 @@ function TowerSVG({ active }) {
     const y = 46 + k * 14.6;
     fins.push(<line key={k} x1="62" y1={y} x2="98" y2={y + 24} />);
   }
-  const sheenAngles = [40, 160, 280];
   return (
     <svg className="towerSvg" viewBox="0 0 300 720">
       {/* side face + fins */}
@@ -299,27 +553,13 @@ function TowerSVG({ active }) {
       <polygon points="100,70 60,46 230,46 270,70" className="towerFace" />
       {/* front face */}
       <rect x="100" y="70" width="170" height="620" className="towerFace" />
-      {/* discs */}
+      {/* discs — tone comes from the halftoned scene canvas underneath */}
       {DISCS.map((_, k) => {
         const cy = 140 + k * 100;
         const isActive = k === active;
         return (
           <g key={k} className={isActive ? "towerDisc active" : "towerDisc"}>
             <circle cx="185" cy={cy} r="44" className="discOuter" />
-            <circle cx="185" cy={cy} r="44" className="discFill" />
-            {sheenAngles.map((deg) => {
-              const a = (deg * Math.PI) / 180;
-              return (
-                <line
-                  key={deg}
-                  x1={185 + Math.cos(a) * 18}
-                  y1={cy + Math.sin(a) * 18}
-                  x2={185 + Math.cos(a) * 41}
-                  y2={cy + Math.sin(a) * 41}
-                  className="discSheen"
-                />
-              );
-            })}
             <circle cx="185" cy={cy} r="15" className="discHubRing" />
             <circle cx="185" cy={cy} r="3.2" className="discHubDot" />
             <text x="240" y={cy + 3} className="discLabel">
@@ -363,9 +603,9 @@ function Knob({ cx, cy, r, angle = -40 }) {
   );
 }
 
-function ScopeSVG({ traceD, playing, vpp, vrms, freq }) {
+function ScopeSVG({ traceD, playing, vpp, vrms, freq, title }) {
   return (
-    <svg className="scopeSvg" viewBox="0 0 560 420">
+    <svg className={`scopeSvg${playing ? " playing" : ""}`} viewBox="0 0 560 420">
       {/* body */}
       <rect x="4" y="4" width="552" height="392" rx="14" className="scopeBody" />
       <rect x="10" y="10" width="540" height="380" rx="10" className="scopeBodyInner" />
@@ -393,6 +633,10 @@ function ScopeSVG({ traceD, playing, vpp, vrms, freq }) {
       {/* screen header / footer */}
       <text x="52" y="76" className="scopeText">CH1  1.00V   5.00ms</text>
       <text x="300" y="76" className={playing ? "scopeTextRed" : "scopeText"}>{playing ? "RUN" : "STOP"}</text>
+      <text x="52" y="290" className={playing ? "scopeTitle live" : "scopeTitle"}>
+        {playing ? "▶ " : "■ "}
+        {title}
+      </text>
       <text x="52" y="306" className="scopeText">
         Vpp {vpp}  Vrms {vrms}  Freq {freq}
       </text>
@@ -601,6 +845,7 @@ export default function Home() {
   const [activeSlot, setActiveSlot] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [wavePhase, setWavePhase] = useState(0);
+  const [trackTitle, setTrackTitle] = useState("");
 
   const playerRef = useRef(null);
   const apiReadyRef = useRef(false);
@@ -637,17 +882,19 @@ export default function Home() {
     if (!entered) return;
     const id = setInterval(() => {
       const p = playerRef.current;
+      if (p && typeof p.getVideoData === "function") {
+        const data = p.getVideoData();
+        if (data && data.title) setTrackTitle(data.title);
+      }
       if (p && typeof p.getPlaylistIndex === "function") {
         const idx = p.getPlaylistIndex();
         if (idx >= 0) {
           setActiveSlot(idx % SLOT_COUNT);
-          setPlaying(true);
           return;
         }
         if (typeof p.getCurrentTime === "function") {
           const t = p.getCurrentTime() || 0;
           setActiveSlot(Math.floor(t / 20) % SLOT_COUNT);
-          setPlaying(true);
           return;
         }
       }
@@ -659,7 +906,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!entered) return;
-    const id = setInterval(() => setWavePhase((p) => p + 1), 140);
+    const id = setInterval(() => setWavePhase((p) => p + 1), 90);
     return () => clearInterval(id);
   }, [entered]);
 
@@ -688,9 +935,33 @@ export default function Home() {
         },
       },
     };
+    config.events.onError = () => {
+      // bad/expired playlist id — fall back to just the video
+      if (ids.listId && ids.videoId) {
+        try {
+          playerRef.current?.destroy();
+        } catch {}
+        const mount = document.getElementById("yt-player-mount-outer");
+        const inner = document.createElement("div");
+        inner.id = "yt-player-mount";
+        mount.replaceChildren(inner);
+        playerRef.current = new window.YT.Player("yt-player-mount", {
+          videoId: ids.videoId,
+          playerVars: { ...playerVars, loop: 1, playlist: ids.videoId },
+          events: {
+            onReady: (e) => {
+              e.target.playVideo();
+              setPlaying(true);
+            },
+            onStateChange: config.events.onStateChange,
+          },
+        });
+      }
+    };
     if (ids.listId) {
       config.playerVars.listType = "playlist";
       config.playerVars.list = ids.listId;
+      if (ids.videoId) config.videoId = ids.videoId;
     } else if (ids.videoId) {
       config.videoId = ids.videoId;
       config.playerVars.loop = 1;
@@ -718,22 +989,32 @@ export default function Home() {
     }
   }
 
-  // scope trace: periodic sharp spikes + ripple, like the reference CRT
+  // Scope trace. YouTube's iframe exposes no raw audio samples (cross-origin),
+  // so this is a playback-driven synthesis: a slow energy envelope plus
+  // per-spike heights hashed off the scroll position, which reads like a
+  // music waveform breathing with the track.
   const N = 140;
-  const p = wavePhase * (playing ? 0.5 : 0.08);
+  const p = wavePhase * (playing ? 0.55 : 0.08);
+  const energy = playing
+    ? Math.max(0.18, 0.62 + 0.28 * Math.sin(p * 0.9) + 0.18 * Math.sin(p * 0.37 + 1.3))
+    : 0.15;
   let traceD = "";
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const spike = Math.pow(Math.abs(Math.sin(t * Math.PI * 7 + p)), 10) * 96;
-    const ripple = Math.sin(t * 46 + p * 1.6) * 5 + Math.sin(t * 13 + p * 0.7) * 6;
-    const amp = playing ? 1 : 0.18;
-    const y = 260 - spike * amp - ripple * amp;
+    const seg = Math.floor(t * 14 + p * 1.1);
+    const hvar = 0.4 + 0.6 * hash2(seg, 7);
+    const spike = Math.pow(Math.abs(Math.sin(t * Math.PI * 7 + p)), 8) * 92 * hvar;
+    const ripple = Math.sin(t * 46 + p * 1.6) * 4 + Math.sin(t * 13 + p * 0.7) * 5;
+    const y = 260 - (spike + ripple) * energy;
     const x = 42 + t * 298;
     traceD += `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
   }
-  const vpp = playing ? (2.04 + Math.sin(p) * 0.08).toFixed(2) + "V" : "--.-";
-  const vrms = playing ? (0.72 + Math.sin(p * 1.3) * 0.03).toFixed(2) + "V" : "--.-";
+  const vpp = playing ? (2.04 * energy + 0.4).toFixed(2) + "V" : "--.-";
+  const vrms = playing ? (0.72 * energy + 0.14).toFixed(2) + "V" : "--.-";
   const freq = playing ? (98.3 + Math.sin(p * 0.7) * 1.2).toFixed(1) + "Hz" : "--.-";
+  const titleShown = trackTitle
+    ? trackTitle.toUpperCase().slice(0, 30) + (trackTitle.length > 30 ? "…" : "")
+    : "AWAITING SIGNAL";
 
   return (
     <div className={`root${entered ? " entered" : ""}`}>
@@ -745,12 +1026,6 @@ export default function Home() {
             </feTurbulence>
             <feColorMatrix in="noise" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.07 0" />
           </filter>
-          <pattern id="towerDots" width="4" height="4" patternUnits="userSpaceOnUse">
-            <circle cx="1" cy="1" r="0.7" fill="rgba(232,230,222,0.8)" />
-          </pattern>
-          <pattern id="pillDots" width="3.4" height="3.4" patternUnits="userSpaceOnUse">
-            <circle cx="0.9" cy="0.9" r="0.65" fill="rgba(232,230,222,0.85)" />
-          </pattern>
         </defs>
       </svg>
 
@@ -769,15 +1044,14 @@ export default function Home() {
 
           <div className="siteTitle">refoldered.com_</div>
 
+          <SceneCanvas />
+
           <div className="towerWrap">
             <TowerSVG active={activeSlot} />
           </div>
 
           <div className="flipLabel">[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
 
-          <div className="streakWrap">
-            <StreakField />
-          </div>
           <div className="coinWrap">
             <PillCanvas />
           </div>
@@ -790,7 +1064,14 @@ export default function Home() {
           </div>
 
           <div className="scopeWrap">
-            <ScopeSVG traceD={traceD} playing={playing} vpp={vpp} vrms={vrms} freq={freq} />
+            <ScopeSVG
+              traceD={traceD}
+              playing={playing}
+              vpp={vpp}
+              vrms={vrms}
+              freq={freq}
+              title={titleShown}
+            />
           </div>
 
           <div className="recallPos">
@@ -831,7 +1112,7 @@ export default function Home() {
       <button className="soundToggle" onClick={toggleMute}>
         {muted ? "unmute" : "mute"}
       </button>
-      <div className="audioMount">
+      <div className="audioMount" id="yt-player-mount-outer">
         <div id="yt-player-mount" />
       </div>
     </div>
