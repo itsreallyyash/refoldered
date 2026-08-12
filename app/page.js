@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import SoundCloudPlayer from "./components/SoundCloudPlayer";
+import ArchiveAudio from "./components/ArchiveAudio";
 
 const CRYPTIC = [
   "music piercing through my aorta",
@@ -50,25 +50,6 @@ const ALBUMS = [
 
 const DISCS = ["PROJECTS", "DATA_LOG", "HISTORY", "CONTACT", "RECALL", "FRAGMENTS"];
 const SLOT_COUNT = DISCS.length;
-
-// Tempo per mix (matched by URL slug) so the scope thumps on the music's
-// actual grid instead of an arbitrary hash. Unknown tracks fall back to 118.
-const TRACK_BPM = {
-  "selected-ambient-works-25-part-one": 96,
-  "selected-ambient-works-25-part-two": 92,
-  "aphex-twin-selected-ambient": 88,
-  "acid-house-dj-set": 132,
-  "boards-of-canada-essential-mix": 84,
-  "white-pony-full-album": 104,
-  "black-stallion": 100,
-};
-
-function bpmForTrack(url) {
-  for (const slug of Object.keys(TRACK_BPM)) {
-    if (url && url.includes(slug)) return TRACK_BPM[slug];
-  }
-  return 118;
-}
 
 // Math.cos/sin/atan2 are not required by the spec to be correctly rounded,
 // so Node and the browser can disagree in the last ulp — enough for React
@@ -1118,16 +1099,17 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
 }
 
 /* ================= CRT SCOPE SCREEN =================
-   Real-time oscilloscope render: a phosphor-persistence canvas laid over
-   the SVG screen. The beat clock is the SoundCloud playhead itself —
-   mediaTime resyncs the signal clock, so the thump lands on the track's
-   own BPM grid (from TRACK_BPM), freezes on stall, and jumps on seek.
-   One tight kick per beat, snare noise on the 2 and 4, hat ticks on the
-   offbeats, near-silence between — rhythm you can see. */
-function ScopeScreen({ playing, seed, bpm, mediaTime }) {
+   A real oscilloscope. The AnalyserNode taps the actual audio graph, so
+   every frame draws the true time-domain waveform of what is coming out
+   of the speakers — nothing synthesized. Classic scope trigger (first
+   rising zero-crossing) holds the display steady; bass energy from the
+   FFT blooms the beam; Vpp/Vrms/frequency are measured off the buffer. */
+function ScopeScreen({ analyserRef, playing, onMeasure }) {
   const ref = useRef(null);
-  const propsRef = useRef({ playing, seed, bpm, mediaTime });
-  propsRef.current = { playing, seed, bpm, mediaTime };
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  const measureRef = useRef(onMeasure);
+  measureRef.current = onMeasure;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -1145,72 +1127,78 @@ function ScopeScreen({ playing, seed, bpm, mediaTime }) {
     trail.height = H;
     const tctx = trail.getContext("2d");
 
+    const wave = new Uint8Array(2048);
+    const spec = new Uint8Array(1024);
     let raf;
-    let last = performance.now();
-    let t = 0; // signal clock, resynced to the playhead
-    let lastMt = -1;
+    let lastMeasure = 0;
+    // auto-gain (the VOLTS/DIV knob turning itself): track a slowly
+    // decaying peak so quiet ambient passages still fill the screen and
+    // loud ones don't clip
+    let agcPeak = 0.3;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
-      const dt = Math.min(80, now - last);
-      last = now;
-      const { playing, seed, bpm, mediaTime } = propsRef.current;
-      if (playing) t += dt / 1000;
-      // hard-lock to the widget's playhead whenever it drifts
-      if (mediaTime !== lastMt) {
-        lastMt = mediaTime;
-        if (Math.abs(t - mediaTime) > 0.25) t = mediaTime;
-      }
+      const an = analyserRef.current;
+      const live = !!(playingRef.current && an);
 
       // fade the phosphor
       tctx.globalCompositeOperation = "destination-out";
-      // a scrolling trace smears if persistence is too long
-      tctx.fillStyle = `rgba(0,0,0,${playing ? 0.42 : 0.3})`;
+      tctx.fillStyle = `rgba(0,0,0,${live ? 0.34 : 0.3})`;
       tctx.fillRect(0, 0, W, H);
       tctx.globalCompositeOperation = "source-over";
 
-      // The screen is a time window: BEATS_ON_SCREEN beats span the width,
-      // newest sample at the right edge. So the beat grid is drawn in
-      // space — you watch kicks march leftward at exactly the track's
-      // tempo instead of the whole trace breathing at once.
-      const BEATS_ON_SCREEN = 4;
-      const beatNow = (t * bpm) / 60;
-      const cyc = 12 + (seed % 8); // carrier cycles per beat
+      let trig = 0;
+      let bass = 0;
+      let gain = 1;
+      if (live) {
+        an.getByteTimeDomainData(wave);
+        an.getByteFrequencyData(spec);
+        // bass energy 0..1 from the bottom FFT bins (~20–500Hz)
+        let b = 0;
+        for (let i = 1; i < 24; i++) b += spec[i];
+        bass = b / (23 * 255);
+        // frame peak drives the AGC: fast attack, slow release
+        let pk = 0;
+        for (let i = 0; i < wave.length; i += 4) {
+          const d = Math.abs(wave[i] - 128) / 128;
+          if (d > pk) pk = d;
+        }
+        agcPeak = pk > agcPeak ? pk : agcPeak * 0.995 + pk * 0.005;
+        gain = Math.min(14, 0.72 / Math.max(0.02, agcPeak));
+        // trigger on the first rising crossing through center, like a
+        // scope's NORM mode — keeps a periodic signal steady on screen
+        for (let i = 1; i < wave.length / 2; i++) {
+          if (wave[i - 1] < 128 && wave[i] >= 128) {
+            trig = i;
+            break;
+          }
+        }
+      }
 
-      const N = 560;
+      const SPAN = 1024; // samples across the screen (~23ms at 44.1k)
       const nf = Math.floor(now / 16);
       tctx.beginPath();
-      for (let i = 0; i <= N; i++) {
-        const u = i / N;
-        const beatPos = beatNow - (1 - u) * BEATS_ON_SCREEN;
-        const bp = beatPos - Math.floor(beatPos);
-        const idx = Math.floor(beatPos);
-        // kick: hard attack on the beat, dead by a third of it, with the
-        // downbeat of each bar hitting harder
-        const env = Math.exp(-bp * 9) * (idx % 4 === 0 ? 1.25 : 1);
-        // snare on 2 and 4, hat tick on every offbeat
-        const snare = idx % 2 === 1 ? Math.exp(-bp * 7) * 0.5 : 0;
-        const hat = Math.exp(-Math.pow((bp - 0.5) * 14, 2)) * 0.3;
-        const carrier = Math.sin(beatPos * Math.PI * 2 * cyc);
-        const noise = (hash2(i, nf) - 0.5) * 2;
-        const noise2 = (hash2(i * 7 + 3, nf) - 0.5) * 2;
-        const value = playing
-          ? env * carrier * 0.62 + snare * noise * 0.3 + hat * noise2 * 0.22
-          : (hash2(i * 3 + 1, nf) - 0.5) * 0.05;
-        const y = H / 2 - value * H * 0.44;
-        if (i === 0) tctx.moveTo(0, y);
-        else tctx.lineTo(u * W, y);
+      for (let i = 0; i <= SPAN; i++) {
+        const v = live
+          ? (wave[Math.min(wave.length - 1, trig + i)] - 128) * gain
+          : (hash2(i * 3 + 1, nf) - 0.5) * 5;
+        const clipped = Math.max(-128, Math.min(128, v));
+        const y = H / 2 + (clipped / 128) * H * 0.46;
+        const x = (i / SPAN) * W;
+        if (i === 0) tctx.moveTo(x, y);
+        else tctx.lineTo(x, y);
       }
-      // glow pass then hot core, like a real CRT beam
+      // glow pass then hot core, like a real CRT beam — the beam blooms
+      // and thickens with bass energy
       tctx.shadowColor = "#ff2d12";
-      tctx.shadowBlur = 14;
-      tctx.strokeStyle = playing
-        ? "rgba(255,64,34,0.9)"
+      tctx.shadowBlur = 10 + bass * 30;
+      tctx.strokeStyle = live
+        ? `rgba(255,${Math.round(60 + bass * 70)},34,0.9)`
         : "rgba(255,64,34,0.35)";
-      tctx.lineWidth = 2.6;
+      tctx.lineWidth = 2 + bass * 2;
       tctx.stroke();
       tctx.shadowBlur = 0;
-      tctx.strokeStyle = playing
+      tctx.strokeStyle = live
         ? "rgba(255,216,200,0.9)"
         : "rgba(255,216,200,0.25)";
       tctx.lineWidth = 1;
@@ -1218,6 +1206,34 @@ function ScopeScreen({ playing, seed, bpm, mediaTime }) {
 
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(trail, 0, 0);
+
+      // real measurements off the same buffer, a few times a second
+      if (now - lastMeasure > 250 && measureRef.current) {
+        lastMeasure = now;
+        if (live) {
+          let mn = 255;
+          let mx = 0;
+          let sum = 0;
+          let cross = 0;
+          for (let i = 0; i < wave.length; i++) {
+            const v = wave[i];
+            if (v < mn) mn = v;
+            if (v > mx) mx = v;
+            const d = (v - 128) / 128;
+            sum += d * d;
+            if (i > 0 && wave[i - 1] < 128 !== v < 128) cross++;
+          }
+          const sr = an.context.sampleRate;
+          const f = (cross * sr) / (2 * wave.length);
+          measureRef.current({
+            vpp: (((mx - mn) / 255) * 2).toFixed(2) + "V",
+            vrms: Math.sqrt(sum / wave.length).toFixed(2) + "V",
+            freq: f >= 1000 ? (f / 1000).toFixed(2) + "kHz" : Math.round(f) + "Hz",
+          });
+        } else {
+          measureRef.current({ vpp: "--.-", vrms: "--.-", freq: "---" });
+        }
+      }
     }
 
     raf = requestAnimationFrame(frame);
@@ -1824,14 +1840,14 @@ export default function Home() {
   const [entered, setEntered] = useState(false);
   const [activeSlot, setActiveSlot] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [wavePhase, setWavePhase] = useState(0);
   const [trackTitle, setTrackTitle] = useState("");
-  const [trackBpm, setTrackBpm] = useState(118);
-  const [mediaTime, setMediaTime] = useState(0);
-  const [vidHash, setVidHash] = useState(1);
   const [hauntTip, setHauntTip] = useState(null);
+  // real scope readouts, measured off the analyser buffer
+  const [meas, setMeas] = useState({ vpp: "--.-", vrms: "--.-", freq: "---" });
 
   const idleCounterRef = useRef(0);
+  const analyserRef = useRef(null);
+  const audioCtlRef = useRef(null);
 
   // poster scale-to-fit
   useEffect(() => {
@@ -1854,31 +1870,12 @@ export default function Home() {
     return () => clearInterval(id);
   }, [entered]);
 
-  useEffect(() => {
-    if (!entered) return;
-    const id = setInterval(() => {
-      setWavePhase((p) => p + 1);
-    }, 90);
-    return () => clearInterval(id);
-  }, [entered]);
-
   function enter() {
     if (entered) return;
     setEntered(true);
+    // the gate click is the user gesture — start the audio graph on it
+    audioCtlRef.current?.start();
   }
-
-  // Readout numbers for the scope panel. The trace itself is rendered by
-  // ScopeScreen (canvas, phosphor persistence); these just keep the text
-  // readouts breathing with the same clock.
-  const p = playing ? mediaTime * 3.4 : wavePhase * 0.08;
-  const segF = mediaTime * 1.8;
-  const segI = Math.floor(segF);
-  const eA = hash2(vidHash, segI);
-  const eB = hash2(vidHash, segI + 1);
-  const energy = playing ? 0.3 + 0.7 * (eA + (eB - eA) * (segF - segI)) : 0.15;
-  const vpp = playing ? (2.04 * energy + 0.4).toFixed(2) + "V" : "--.-";
-  const vrms = playing ? (0.72 * energy + 0.14).toFixed(2) + "V" : "--.-";
-  const freq = playing ? `BPM ${trackBpm}` : "BPM ---";
 
   // hover haunt: every element highlights and whispers a random line
   function haunt(base = "") {
@@ -1950,16 +1947,15 @@ export default function Home() {
           <div {...haunt("scopeWrap")}>
             <ScopeSVG
               playing={playing}
-              vpp={vpp}
-              vrms={vrms}
-              freq={freq}
+              vpp={meas.vpp}
+              vrms={meas.vrms}
+              freq={meas.freq}
               title={titleShown}
             />
             <ScopeScreen
+              analyserRef={analyserRef}
               playing={playing}
-              seed={vidHash}
-              bpm={trackBpm}
-              mediaTime={mediaTime}
+              onMeasure={setMeas}
             />
           </div>
 
@@ -2003,15 +1999,10 @@ export default function Home() {
 
       <div className="grain" />
 
-      <SoundCloudPlayer
-        onTimeUpdate={(t) => setMediaTime(t)}
-        onTrackChange={(title, url) => {
-          setTrackTitle(title);
-          setTrackBpm(bpmForTrack(url));
-          let h = 0;
-          for (const ch of title) h = (h * 31 + ch.charCodeAt(0)) | 0;
-          setVidHash(Math.abs(h) || 1);
-        }}
+      <ArchiveAudio
+        controlRef={audioCtlRef}
+        analyserRef={analyserRef}
+        onTrackChange={setTrackTitle}
         playing={playing}
         setPlaying={setPlaying}
       />
