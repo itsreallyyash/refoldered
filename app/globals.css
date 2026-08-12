@@ -460,8 +460,8 @@ body {
 }
 .lipsPos {
   position: absolute;
-  left: 1020px;
-  top: 682px;
+  left: 988px;
+  top: 690px;
   animation: floatTicket 9.5s ease-in-out infinite 1.4s;
 }
 .lipsCanvas {

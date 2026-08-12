@@ -856,9 +856,10 @@ function GroundCanvas() {
        along the fibres, a body of overlapping soft dabs, a darker core
        where it pooled and dried, and a feathered rim. Gravity then pulls
        runs down the sheet, and impact throws spray. */
-    const RED_CORE = "120,10,12";
-    const RED_BODY = "96,8,10";
-    const RED_WASH = "128,26,26";
+    const RED_CORE = "138,12,14";
+    const RED_BODY = "104,9,11";
+    const RED_WASH = "132,28,28";
+    const RED_DARK = "62,4,6";
 
     // an organic outline: radius modulated by several noise octaves
     const blobPath = (cx, cy, rad, seed, squash) => {
@@ -880,33 +881,36 @@ function GroundCanvas() {
       c.closePath();
     };
 
-    // a mark that has soaked into the stock
+    // A mark that has soaked in but still has a body. The trap here is
+    // going all-soft: that just reads as red fog. Real blood keeps a
+    // hard, dark centre and throws crisp droplets — the softness belongs
+    // only to the halo wicking out along the fibres.
     const bleed = (cx, cy, rad, seed, squash = 1, strength = 1) => {
-      // 1. wicking halo — blurred wide and pale, the stain in the fibres
+      // 1. wicking halo — tight, not a cloud
       c.save();
-      c.filter = "blur(14px)";
-      c.fillStyle = `rgba(${RED_WASH},${0.2 * strength})`;
-      blobPath(cx, cy, rad * 1.5, seed + 71, squash);
+      c.filter = "blur(9px)";
+      c.fillStyle = `rgba(${RED_WASH},${0.17 * strength})`;
+      blobPath(cx, cy, rad * 1.12, seed + 71, squash);
       c.fill();
       c.restore();
 
-      // 2. body — soft-edged, the bulk of the mark
+      // 2. body — only lightly softened
       c.save();
-      c.filter = "blur(4px)";
-      c.fillStyle = `rgba(${RED_BODY},${0.72 * strength})`;
+      c.filter = "blur(2px)";
+      c.fillStyle = `rgba(${RED_BODY},${0.86 * strength})`;
       blobPath(cx, cy, rad, seed, squash);
       c.fill();
       c.restore();
 
       // 3. feathered rim: dabs pushed out along the edge, so the boundary
-      //    breaks up into fingers instead of reading as an outline
+      //    breaks into fingers instead of reading as an outline
       c.save();
-      c.filter = "blur(2.5px)";
-      for (let k = 0; k < 46; k++) {
+      c.filter = "blur(1.6px)";
+      for (let k = 0; k < 52; k++) {
         const t = hash2(seed * 5 + k, 13) * Math.PI * 2;
-        const push = 0.82 + hash2(seed * 7 + k, 17) * 0.42;
-        const r2 = rad * (0.1 + hash2(seed * 11 + k, 19) * 0.22);
-        c.fillStyle = `rgba(${RED_BODY},${0.4 * strength})`;
+        const push = 0.84 + hash2(seed * 7 + k, 17) * 0.4;
+        const r2 = rad * (0.09 + hash2(seed * 11 + k, 19) * 0.2);
+        c.fillStyle = `rgba(${RED_BODY},${0.6 * strength})`;
         c.beginPath();
         c.ellipse(
           cx + Math.cos(t) * rad * push,
@@ -921,69 +925,116 @@ function GroundCanvas() {
       }
       c.restore();
 
-      // 4. core — where it pooled thickest and dried darkest
-      c.save();
-      c.filter = "blur(1.5px)";
-      c.fillStyle = `rgba(${RED_CORE},${0.85 * strength})`;
-      blobPath(cx, cy, rad * 0.58, seed + 5, squash);
+      // 4. core — sharp-edged and thick, where it pooled and dried
+      c.filter = "none";
+      c.fillStyle = `rgba(${RED_CORE},${0.95 * strength})`;
+      blobPath(cx, cy, rad * 0.62, seed + 5, squash);
       c.fill();
-      c.restore();
+      // 5. the darkest ring, where the pool dried against its own edge
+      c.strokeStyle = `rgba(${RED_DARK},${0.5 * strength})`;
+      c.lineWidth = 2.2;
+      c.stroke();
+      // 6. sharp satellite drops around the mark — these are what make it
+      //    read as blood rather than a stain
+      for (let k = 0; k < 18; k++) {
+        const t = hash2(seed * 13 + k, 27) * Math.PI * 2;
+        const dd = rad * (1.1 + hash2(seed * 3 + k, 31) * 0.7);
+        const r3 = rad * (0.03 + Math.pow(hash2(k, 33), 2) * 0.13);
+        c.fillStyle = `rgba(${RED_CORE},${0.8 * strength})`;
+        c.beginPath();
+        c.ellipse(
+          cx + Math.cos(t) * dd,
+          cy + Math.sin(t) * dd * squash,
+          r3,
+          r3 * (0.75 + hash2(k, 37) * 0.5),
+          t,
+          0,
+          Math.PI * 2
+        );
+        c.fill();
+      }
     };
 
     // gravity runs: a narrow column of blood tracking down the sheet,
     // wavering, thinning, and beading where it stopped
     const run = (x0, y0, len, seed, w0 = 3.4) => {
       const steps = Math.max(8, Math.floor(len / 4));
-      c.save();
-      c.filter = "blur(1.6px)";
+      const pts = [];
       let x = x0;
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        const y = y0 + t * len;
         x += (hash2(seed * 13 + i, 29) - 0.5) * 1.5; // wanders as it falls
-        const w = w0 * (1 - t * 0.72) * (0.7 + hash2(seed + i, 31) * 0.5);
-        if (w <= 0.2) continue;
-        c.fillStyle = `rgba(${RED_BODY},${0.72 - t * 0.25})`;
-        c.beginPath();
-        c.ellipse(x, y, w, w * 1.6, 0, 0, Math.PI * 2);
-        c.fill();
+        pts.push([x, y0 + t * len, w0 * (1 - t * 0.72) * (0.75 + hash2(seed + i, 31) * 0.45)]);
       }
-      // the bead at the end, where surface tension held it
-      c.fillStyle = `rgba(${RED_CORE},0.85)`;
-      c.beginPath();
-      c.ellipse(x, y0 + len, w0 * 0.85, w0 * 1.25, 0, 0, Math.PI * 2);
-      c.fill();
+      // soft wick either side of the trail
+      c.save();
+      c.filter = "blur(3px)";
+      c.fillStyle = `rgba(${RED_WASH},0.3)`;
+      pts.forEach(([px, py, w]) => {
+        c.beginPath();
+        c.ellipse(px, py, w * 1.7, w * 2, 0, 0, Math.PI * 2);
+        c.fill();
+      });
       c.restore();
+      // the trail itself, crisp
+      c.filter = "none";
+      pts.forEach(([px, py, w], i) => {
+        if (w <= 0.2) return;
+        c.fillStyle = `rgba(${RED_CORE},${0.9 - (i / steps) * 0.3})`;
+        c.beginPath();
+        c.ellipse(px, py, w, w * 1.6, 0, 0, Math.PI * 2);
+        c.fill();
+      });
+      // the bead at the end, where surface tension held it
+      const [ex2, ey2] = pts[pts.length - 1];
+      c.fillStyle = `rgba(${RED_CORE},0.95)`;
+      c.beginPath();
+      c.ellipse(ex2, ey2, w0 * 0.9, w0 * 1.35, 0, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = `rgba(${RED_DARK},0.5)`;
+      c.beginPath();
+      c.ellipse(ex2, ey2 + w0 * 0.4, w0 * 0.5, w0 * 0.7, 0, 0, Math.PI * 2);
+      c.fill();
     };
 
     // impact spray: droplets thrown along an axis, stretched by travel,
     // with a long tail of fine mist
+    // Droplets are drawn hard-edged: a droplet that hit and dried has a
+    // sharp rim, and only a faint wick around it.
     const spray = (ox, oy, dir, spread, count, seed, maxD) => {
-      c.save();
-      c.filter = "blur(0.6px)";
       for (let k = 0; k < count; k++) {
         const a = dir + (hash2(seed * 3 + k, 51) - 0.5) * spread;
         const d = Math.pow(hash2(seed * 5 + k, 53), 0.55) * maxD;
         const x = ox + Math.cos(a) * d;
         const y = oy + Math.sin(a) * d;
         const near = 1 - d / maxD;
-        const s = Math.pow(hash2(k, 57), 2.2) * 5 * near + 0.35;
+        const s = Math.pow(hash2(k, 57), 1.8) * 6.5 * near + 0.5;
         c.save();
         c.translate(x, y);
         c.rotate(a);
-        c.fillStyle = `rgba(${RED_CORE},${0.35 + near * 0.5})`;
+        // faint soak around the bigger drops
+        if (s > 1.6) {
+          c.save();
+          c.filter = "blur(2.5px)";
+          c.fillStyle = `rgba(${RED_WASH},0.3)`;
+          c.beginPath();
+          c.ellipse(0, 0, s * 2.4, s * 1.8, 0, 0, Math.PI * 2);
+          c.fill();
+          c.restore();
+        }
+        c.filter = "none";
+        c.fillStyle = `rgba(${RED_CORE},${0.55 + near * 0.42})`;
         c.beginPath();
-        c.ellipse(0, 0, s * (1 + d / maxD * 1.4), s * 0.7, 0, 0, Math.PI * 2);
+        c.ellipse(0, 0, s * (1 + (d / maxD) * 1.5), s * 0.72, 0, 0, Math.PI * 2);
         c.fill();
         // the little satellite that trails a fast droplet
-        if (hash2(k, 61) > 0.72) {
+        if (hash2(k, 61) > 0.68) {
           c.beginPath();
-          c.arc(-s * 3.5, 0, s * 0.35, 0, Math.PI * 2);
+          c.arc(-s * 3.4, 0, s * 0.4, 0, Math.PI * 2);
           c.fill();
         }
         c.restore();
       }
-      c.restore();
     };
 
     /* --- top-right: a hit against the corner --- */
@@ -1977,22 +2028,77 @@ function RaveFlyer() {
 }
 
 /* ================= CUT LIP IMPRINT =================
-   A lipstick kiss pressed onto the page, typed in ASCII — creased,
-   stippled like a real imprint, with a slit cut across the lower lip.
-   Hover and the whole kiss heats up glowing red. */
+   Drawing lips from bezier curves never stopped reading as a blob, so
+   this types the real photographed kiss print instead: /lips.jpg is
+   loaded (same origin, so the pixels are readable), its ink is sampled
+   on a character grid and mapped through the density ramp. The print's
+   own striations and blotches survive the conversion, because they're
+   in the source rather than something being faked on top.
+   A slit is cut across the lower lip; hovering runs the whole kiss hot. */
 function AsciiLips() {
   const [hot, setHot] = useState(false);
   const ref = useRef(null);
+  const inkRef = useRef(null); // sampled ink grid, kept between renders
 
+  // sample the photograph once into a grid of ink values
   useEffect(() => {
+    const img = new Image();
+    img.src = "/lips.jpg";
+    img.onload = () => {
+      const SW = 300;
+      const SH = Math.round((img.height / img.width) * SW);
+      const off = document.createElement("canvas");
+      off.width = SW;
+      off.height = SH;
+      const g = off.getContext("2d");
+      g.drawImage(img, 0, 0, SW, SH);
+      const d = g.getImageData(0, 0, SW, SH).data;
+
+      // The print is dark pigment on white, so ink is the inverse of
+      // luminance. Find the print's bounding box first and crop to it,
+      // otherwise most of the grid is empty paper.
+      let x0 = SW;
+      let y0 = SH;
+      let x1 = 0;
+      let y1 = 0;
+      const ink = new Float32Array(SW * SH);
+      for (let y = 0; y < SH; y++) {
+        for (let x = 0; x < SW; x++) {
+          const i = (y * SW + x) * 4;
+          const lum = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
+          // red pigment reads light in luminance terms, so weight the
+          // red-minus-green difference in as well
+          const chroma = Math.max(0, (d[i] - d[i + 1]) / 255);
+          const v = Math.max(0, Math.min(1, (1 - lum) * 0.75 + chroma * 0.9));
+          ink[y * SW + x] = v;
+          if (v > 0.22) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+        }
+      }
+      inkRef.current = { ink, SW, SH, x0, y0, x1, y1 };
+      draw();
+    };
+  }, []);
+
+  const draw = () => {
     const canvas = ref.current;
-    if (!canvas) return;
+    const src = inkRef.current;
+    if (!canvas || !src) return;
+    const { ink, SW, x0, y0, x1, y1 } = src;
+    const bw = x1 - x0 + 1;
+    const bh = y1 - y0 + 1;
+
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    const SW = 220;
-    const SH = 160;
-    const SCALE = 1.36;
-    const W = Math.round(SW * SCALE);
-    const H = Math.round(SH * SCALE);
+    const COLS = 96; // character grid across the print
+    const cellS = bw / COLS; // source px per character
+    const ROWS = Math.floor(bh / cellS);
+    const STEP = 2.85; // on-screen px per character
+    const W = Math.round(COLS * STEP);
+    const H = Math.round(ROWS * STEP);
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = W + "px";
@@ -2001,164 +2107,57 @@ function AsciiLips() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    /* ---- the two lip shapes, as flat blocks of pigment ----
-       A stain is not a lit object: there is no gloss, no shading, only
-       pigment that did or didn't transfer. So the shapes are filled flat
-       and all the character comes from how the coverage breaks up. */
-    const L = 24; // corners pulled in and sharpened
-    const R = 196;
-    const CXm = 110;
-    const MY = 80;
-    // the parted mouth: a clear gap where no pigment lands
-    // the parting is a thin, uneven sliver — not a clean band
-    const mouthTop = (x) => {
-      const t = (x - L) / (R - L);
-      return MY + Math.sin(t * Math.PI) * 9 - 3 - vnoise(x, 0, 22, 41) * 2.4;
-    };
-    const mouthBot = (x) => {
-      const t = (x - L) / (R - L);
-      return MY + Math.sin(t * Math.PI) * 9 + 3 + vnoise(x, 90, 18, 43) * 2.8;
-    };
-
-    // Upper lip: control points sit close to each corner so the curve
-    // leaves at a shallow angle and the corner comes to a point.
-    const upper = new Path2D();
-    upper.moveTo(L, MY);
-    upper.bezierCurveTo(30, 66, 62, 30, 88, 32); // left peak of the bow
-    upper.quadraticCurveTo(110, 56, 132, 32); // philtrum dip, then right peak
-    upper.bezierCurveTo(158, 30, 190, 66, R, MY);
-    upper.bezierCurveTo(164, MY + 6, 56, MY + 6, L, MY);
-    upper.closePath();
-
-    // Lower lip: fuller, widest just below the mouth line. Its top edge
-    // is serrated — where it pressed against the upper lip the pigment
-    // breaks into little teeth, which is the tell of a real print.
-    const lower = new Path2D();
-    lower.moveTo(L, MY);
-    const TEETH = 30;
-    for (let k = 0; k <= TEETH; k++) {
-      const t = k / TEETH;
-      const x = L + t * (R - L);
-      const swell = Math.sin(t * Math.PI);
-      const tooth = (k % 2 ? -1 : 1) * (1.4 + hash2(k, 5) * 3.4) * swell;
-      lower.lineTo(x, MY + swell * 12 + tooth);
-    }
-    lower.bezierCurveTo(186, 126, 150, 152, 110, 152);
-    lower.bezierCurveTo(70, 152, 34, 126, L, MY);
-    lower.closePath();
-
-    // Blurred copy of the shapes: its alpha is a cheap stand-in for
-    // "how far inside the lip am I", which is exactly how hard the lip
-    // pressed — full in the belly, feathering out at the rim.
-    const soft = document.createElement("canvas");
-    soft.width = SW;
-    soft.height = SH;
-    const sc = soft.getContext("2d");
-    sc.filter = "blur(6px)";
-    sc.fillStyle = "#fff";
-    sc.fill(upper);
-    sc.fill(lower);
-    sc.filter = "none";
-    const softData = sc.getImageData(0, 0, SW, SH).data;
-
-    // Hard mask, so pigment never strays outside the lip outline.
-    const mask = document.createElement("canvas");
-    mask.width = SW;
-    mask.height = SH;
-    const mc = mask.getContext("2d");
-    mc.fillStyle = "#fff";
-    mc.fill(upper);
-    mc.fill(lower);
-    // carve the mouth line out — the lips part there, so no ink lands
-    mc.globalCompositeOperation = "destination-out";
-    mc.beginPath();
-    mc.moveTo(L, mouthTop(L));
-    for (let x = L; x <= R; x += 4) mc.lineTo(x, mouthTop(x));
-    for (let x = R; x >= L; x -= 4) mc.lineTo(x, mouthBot(x));
-    mc.closePath();
-    mc.fill();
-    mc.globalCompositeOperation = "source-over";
-    const maskData = mc.getImageData(0, 0, SW, SH).data;
-
-    /* ---- type the stain ---- */
     const RAMP = " .:-=+*#%@";
-    // the slit cut across the lower lip
-    const A = [96, 96];
-    const B = [142, 134];
-    const distToCut = (x, y) => {
-      const vx = B[0] - A[0];
-      const vy = B[1] - A[1];
-      const t = Math.max(0, Math.min(1, ((x - A[0]) * vx + (y - A[1]) * vy) / (vx * vx + vy * vy)));
-      return Math.hypot(x - (A[0] + vx * t), y - (A[1] + vy * t));
-    };
-
-    const cell = 2.6;
-    ctx.font = `700 ${(cell * SCALE * 1.7).toFixed(1)}px ui-monospace, Menlo, monospace`;
+    ctx.font = `700 ${(STEP * 1.55).toFixed(1)}px ui-monospace, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    for (let y = 0; y < SH; y += cell) {
-      for (let x = 0; x < SW; x += cell) {
-        const xi = Math.round(x);
-        const yi = Math.round(y);
-        const i = (yi * SW + xi) * 4;
-        if (maskData[i + 3] < 100) continue;
+    // the slit, in grid coords: across the lower lip, left of centre
+    const A = [COLS * 0.42, ROWS * 0.62];
+    const B = [COLS * 0.66, ROWS * 0.92];
+    const distToCut = (cx, cy) => {
+      const vx = B[0] - A[0];
+      const vy = B[1] - A[1];
+      const t = Math.max(0, Math.min(1, ((cx - A[0]) * vx + (cy - A[1]) * vy) / (vx * vx + vy * vy)));
+      return Math.hypot(cx - (A[0] + vx * t), cy - (A[1] + vy * t));
+    };
 
-        // Base coverage: a print is mostly solid pigment, so this
-        // saturates fast and only feathers right at the rim.
-        let cov = softData[i + 3] / 255;
-        cov = Math.min(1, Math.pow(cov, 0.4) * 1.12);
+    for (let r = 0; r < ROWS; r++) {
+      for (let cIdx = 0; cIdx < COLS; cIdx++) {
+        // average the source over the cell so thin striations survive
+        // instead of aliasing away
+        let sum = 0;
+        let n = 0;
+        const sx0 = x0 + cIdx * cellS;
+        const sy0 = y0 + r * cellS;
+        for (let sy = 0; sy < cellS; sy += 1) {
+          for (let sx = 0; sx < cellS; sx += 1) {
+            sum += ink[((sy0 + sy) | 0) * SW + ((sx0 + sx) | 0)] || 0;
+            n++;
+          }
+        }
+        const v = n ? sum / n : 0;
+        if (v < 0.14) continue;
 
-        // Creases are narrow gaps in an otherwise solid field — not a
-        // 50/50 ripple, which is what made this read as mesh. Only some
-        // periods carry a crease at all, and each is a thin slit that
-        // splays away from the mouth line.
-        const fan = ((x - CXm) / (R - L)) * 1.6;
-        const sx = x + (y - MY) * fan;
-        const jitter = vnoise(x, y, 30, 12) * 4;
-        const phase = (sx + jitter) / 6.6;
-        const idx = Math.floor(phase);
-        const fr = phase - idx;
-        const lineSeed = hash2(idx, 3);
-        if (lineSeed > 0.42 && fr < 0.1 + lineSeed * 0.13) cov *= 0.1;
-
-        // gentle unevenness in how the pigment took
-        const blotch = vnoise(x, y, 18, 21) * 0.5 + vnoise(x, y, 6, 33) * 0.5;
-        cov *= 0.8 + blotch * 0.3;
-
-        // ragged rim: right at the edge, transfer becomes hit-and-miss
-        const edge = softData[i + 3] / 255;
-        if (edge < 0.4 && hash2(xi * 7, yi * 13) > edge * 2.2) continue;
-
-        if (cov < 0.1) continue;
-
-        const px = x * SCALE;
-        const py = y * SCALE;
-        const d = distToCut(x, y);
-        if (d < 2) continue; // the wound: open, no pigment
-        if (d < 5) {
+        const px = cIdx * STEP + STEP / 2;
+        const py = r * STEP + STEP / 2;
+        const d = distToCut(cIdx, r);
+        if (d < 1.1) continue; // the wound: open, no pigment
+        if (d < 2.6) {
           ctx.fillStyle = hot ? "#ff2210" : "#8a1410";
           ctx.fillText("#", px, py);
           continue;
         }
-        const ci = Math.min(RAMP.length - 1, Math.max(1, Math.floor(cov * RAMP.length)));
+        const ci = Math.min(RAMP.length - 1, Math.max(1, Math.round(v * (RAMP.length - 1))));
         ctx.fillStyle = hot
-          ? `rgba(255,${70 + cov * 60},${44 + cov * 30},${0.55 + cov * 0.45})`
-          : `rgba(240,238,230,${0.42 + cov * 0.55})`;
+          ? `rgba(255,${60 + v * 70},${40 + v * 30},${0.5 + v * 0.5})`
+          : `rgba(240,238,230,${0.38 + v * 0.6})`;
         ctx.fillText(RAMP[ci], px, py);
       }
     }
+  };
 
-    // a few flecks of pigment thrown clear of the print
-    for (let k = 0; k < 26; k++) {
-      const x = 8 + hash2(k, 91) * (SW - 16);
-      const y = 24 + hash2(k, 93) * (SH - 40);
-      const i = (Math.round(y) * SW + Math.round(x)) * 4;
-      if (maskData[i + 3] > 60) continue;
-      ctx.fillStyle = hot ? "rgba(255,90,58,0.65)" : "rgba(240,238,230,0.4)";
-      ctx.fillText(hash2(k, 97) > 0.5 ? "." : ":", x * SCALE, y * SCALE);
-    }
-  }, [hot]);
+  useEffect(draw, [hot]);
 
   return (
     <canvas
@@ -2622,8 +2621,10 @@ function PillsBreak() {
             if (mode === "shade") dust(cx, cy, rx * 1.6 * e, Math.round(26 * e), i);
           }
         });
-        const ce = ease(cap.anim);
-        capsule(t, mode, Math.min(cap.lvl, 4) * 6 * ce, Math.round(cap.lvl * 8 * ce));
+        if (cap.lvl < 5) {
+          const ce = ease(cap.anim);
+          capsule(t, mode, cap.lvl * 7 * ce, Math.round(cap.lvl * 9 * ce));
+        }
       };
       solid(g, "shade");
       halftone();
@@ -2632,6 +2633,54 @@ function PillsBreak() {
 
     /* ---- input: the cursor anywhere over the poster ---- */
     const PARK = { x: 720, y: 946 };
+    /* Shake the card twice and you drop it: it skids to the nearest edge
+       and lies there, and the loose powder then takes its time — a slow
+       ten seconds — sorting itself into three thin lines beside it.
+       Click anywhere to pick the card back up. */
+    let dropped = false;
+    let dropT = 1;
+    let dropFrom = null;
+    let dropTo = null;
+    let segStart = 0;
+    let flicks = [];
+
+    const dropCard = (ts) => {
+      dropped = true;
+      dropT = 0;
+      flicks = [];
+      dropFrom = { x: cardX, y: cardY, rot };
+      // it skids sideways to the nearest edge, staying at the height you
+      // shook it — so it never lands on top of whatever is down there
+      const toLeft = cardX < W / 2;
+      const restY = Math.max(150, Math.min(H - 150, cardY));
+      dropTo = {
+        x: toLeft ? 96 : W - 96,
+        y: restY,
+        rot: toLeft ? -1.42 : 1.42, // comes to rest on its side
+      };
+      segStart = ts;
+      // three tidy lines racked out beside where the card landed
+      const x0 = toLeft ? 176 : W - 476;
+      const LINE_LEN = 300;
+      grains.forEach((p, i) => {
+        p.sx = p.x;
+        p.sy = p.y;
+        p.vx = 0;
+        p.vy = 0;
+        p.settle = 0;
+        const line = i % 3;
+        p.tx = x0 + hash2(i, 7) * LINE_LEN;
+        p.ty = restY - 44 + line * 44 + (hash2(i, 11) + hash2(i, 13) - 1) * 1.7;
+      });
+    };
+    const pickUp = () => {
+      if (!dropped) return;
+      dropped = false;
+      dropT = 1;
+      grains.forEach((p) => {
+        p.sx = undefined;
+      });
+    };
     const mouse = { x: PARK.x, y: PARK.y, inside: false };
     let cardX = PARK.x;
     let cardY = PARK.y;
@@ -2657,8 +2706,12 @@ function PillsBreak() {
     const onOut = () => {
       mouse.inside = false;
     };
+    const onDown = (ev) => {
+      onMove(ev);
+      pickUp();
+    };
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerdown", onMove);
+    window.addEventListener("pointerdown", onDown);
     document.addEventListener("pointerleave", onOut);
 
     // has the blade swept across this point since the last frame?
@@ -2674,17 +2727,41 @@ function PillsBreak() {
 
       prevX = cardX;
       prevY = cardY;
-      const tx = mouse.inside ? mouse.x : PARK.x;
-      const ty = mouse.inside ? mouse.y : PARK.y;
-      cardX += (tx - cardX) * Math.min(1, dt * 0.022);
-      cardY += (ty - cardY) * Math.min(1, dt * 0.022);
+      if (dropped) {
+        // skidding to the edge and settling there
+        dropT = Math.min(1, dropT + dt / 620);
+        const e2 = ease(dropT);
+        cardX = dropFrom.x + (dropTo.x - dropFrom.x) * e2;
+        cardY = dropFrom.y + (dropTo.y - dropFrom.y) * e2;
+        rot = dropFrom.rot + (dropTo.rot - dropFrom.rot) * e2;
+      } else {
+        const tx = mouse.inside ? mouse.x : PARK.x;
+        const ty = mouse.inside ? mouse.y : PARK.y;
+        cardX += (tx - cardX) * Math.min(1, dt * 0.022);
+        cardY += (ty - cardY) * Math.min(1, dt * 0.022);
+      }
       const bvx = cardX - prevX;
       const bvy = cardY - prevY;
-      const targetRot = mouse.inside ? Math.max(-0.5, Math.min(0.5, -bvx * 0.03)) : -0.12;
-      rot += (targetRot - rot) * Math.min(1, dt * 0.012);
+      if (!dropped) {
+        const targetRot = mouse.inside
+          ? Math.max(-0.5, Math.min(0.5, -bvx * 0.03))
+          : -0.12;
+        rot += (targetRot - rot) * Math.min(1, dt * 0.012);
+      }
+
+      /* shake twice to drop it: two hard reversals in quick succession */
+      if (!dropped && mouse.inside && Math.abs(bvx) > 5.5) {
+        const sign = bvx > 0 ? 1 : -1;
+        const lastF = flicks[flicks.length - 1];
+        if (!lastF || lastF.sign !== sign) {
+          flicks.push({ t: ts, sign });
+          if (flicks.length > 4) flicks.shift();
+        }
+        if (flicks.filter((f) => ts - f.t < 460).length >= 3) dropCard(ts);
+      }
 
       /* cutting */
-      if (mouse.inside) {
+      if (mouse.inside && !dropped) {
         TABLETS.forEach(([cx, cy], i) => {
           const st = pill[i];
           st.cool -= dt;
@@ -2697,10 +2774,12 @@ function PillsBreak() {
           dirty = true;
         });
         cap.cool -= dt;
-        if (cap.cool <= 0 && cap.lvl < 4 && crossed(PILE.x + CAP.x, PILE.y + CAP.y, 40)) {
+        // the capsule used to stop at level 4, so it never actually broke
+        if (cap.cool <= 0 && cap.lvl < 5 && crossed(PILE.x + CAP.x, PILE.y + CAP.y, 40)) {
           cap.cool = 170;
           cap.lvl += 1;
           cap.anim = 0;
+          if (cap.lvl === 5) spawnPowder(CAP.x, CAP.y);
           dirty = true;
         }
       }
@@ -2736,8 +2815,18 @@ function PillsBreak() {
       const bladeSpeed = Math.hypot(bvx, bvy);
 
       const step = dt / 16.7;
+      // once the card is down, the powder sorts itself into three lines
+      // over a slow ten seconds
+      const segK = dropped ? Math.min(1, (ts - segStart) / 10000) : 0;
+      const segE = segK * segK * (3 - 2 * segK); // smoothstep, no snap at either end
+
       for (let i = 0; i < grains.length; i++) {
         const p = grains[i];
+        if (dropped && p.sx !== undefined) {
+          p.x = p.sx + (p.tx - p.sx) * segE;
+          p.y = p.sy + (p.ty - p.sy) * segE;
+          continue;
+        }
         if (p.settle > 0) {
           // racking itself into a line
           p.settle = Math.max(0, p.settle - dt / 520);
@@ -2747,7 +2836,7 @@ function PillsBreak() {
           continue;
         }
         // shoved by the blade
-        if (mouse.inside && bladeSpeed > 0.4) {
+        if (mouse.inside && !dropped && bladeSpeed > 0.4) {
           const t = Math.max(0, Math.min(1, ((p.x - ax) * ex + (p.y - ay) * ey) / elen2));
           const dx = p.x - (ax + ex * t);
           const dy = p.y - (ay + ey * t);
