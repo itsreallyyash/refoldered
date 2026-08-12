@@ -429,21 +429,25 @@ body {
   0%, 100% { transform: rotate(-5.5deg) translate3d(0, 0, 0); }
   50% { transform: rotate(-3.6deg) translate3d(3px, -9px, 0); }
 }
-@keyframes floatTicket {
-  0%, 100% { transform: rotate(8.5deg) translate3d(0, 0, 0); }
-  50% { transform: rotate(6.2deg) translate3d(-4px, -12px, 0); }
+/* the lips lie at a steeper angle and sit lower down the sheet */
+@keyframes floatLips {
+  0%, 100% { transform: rotate(28.5deg) translate3d(0, 0, 0); }
+  50% { transform: rotate(26.2deg) translate3d(-4px, -12px, 0); }
 }
+/* Pasted flat in the bottom-right corner rather than hovering: no
+   drift, barely any shadow, and it sits under the compound so the
+   molecule's edges run across it. */
 .flyerPos {
   position: absolute;
-  left: 46px;
-  top: 752px;
-  z-index: 3;
-  animation: floatEvidence 7.5s ease-in-out infinite;
+  left: 1370px;
+  top: 690px;
+  z-index: 2;
+  transform: rotate(-1.6deg);
 }
 .flyerLink {
   display: block;
   line-height: 0;
-  filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.75));
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.8));
   transition: filter 0.3s ease;
 }
 .flyerCanvas {
@@ -453,16 +457,16 @@ body {
   cursor: pointer;
 }
 .flyerLink:hover {
-  filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.75)) brightness(1.18);
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.8)) brightness(1.18);
 }
 .flyerLink:hover .flyerCanvas {
   border-color: var(--red);
 }
 .lipsPos {
   position: absolute;
-  left: 988px;
-  top: 690px;
-  animation: floatTicket 9.5s ease-in-out infinite 1.4s;
+  left: 940px;
+  top: 716px;
+  animation: floatLips 9.5s ease-in-out infinite 1.4s;
 }
 .lipsCanvas {
   display: block;
@@ -474,11 +478,13 @@ body {
   filter: drop-shadow(0 0 14px rgba(212, 61, 42, 0.8))
     drop-shadow(0 0 36px rgba(212, 61, 42, 0.45));
 }
+/* sits above the flyer so its bonds cross the poster's top edge */
 .chemPos {
   position: absolute;
-  left: 1268px;
-  top: 620px;
+  left: 1258px;
+  top: 574px;
   width: 290px;
+  z-index: 3;
 }
 .chemSvg {
   width: 100%;
