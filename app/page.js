@@ -70,6 +70,14 @@ function bpmForTrack(url) {
   return 118;
 }
 
+// Math.cos/sin/atan2 are not required by the spec to be correctly rounded,
+// so Node and the browser can disagree in the last ulp — enough for React
+// to report a hydration mismatch. Quantise anything trig-derived that gets
+// serialised into SSR'd markup so both sides emit the same string.
+function q3(n) {
+  return Math.round(n * 1000) / 1000;
+}
+
 // Deterministic hash so SSR and client render the same dot fields.
 function hash2(i, j) {
   let h = (i * 374761393 + j * 668265263) | 0;
@@ -971,7 +979,7 @@ function TowerSVG({ active, haunt }) {
                   <rect x="116" y={cy - 5} width="152" height="10" rx="3" className="readerBar" />
                   <circle cx={discCx} cy={cy} r="13" className="readerClamp" />
                   <path
-                    d={`M ${discCx + (discR + 3) * Math.cos(-1.05)},${cy + (discR + 3) * Math.sin(-1.05)} A ${discR + 3},${discR + 3} 0 0 1 ${discCx + (discR + 3) * Math.cos(-0.25)},${cy + (discR + 3) * Math.sin(-0.25)}`}
+                    d={`M ${q3(discCx + (discR + 3) * Math.cos(-1.05))},${q3(cy + (discR + 3) * Math.sin(-1.05))} A ${discR + 3},${discR + 3} 0 0 1 ${q3(discCx + (discR + 3) * Math.cos(-0.25))},${q3(cy + (discR + 3) * Math.sin(-0.25))}`}
                     className="readerArc"
                   />
                 </g>
@@ -995,10 +1003,10 @@ function Knob({ cx, cy, r, angle = -40 }) {
     ticks.push(
       <line
         key={d}
-        x1={cx + Math.cos(a) * (r + 3)}
-        y1={cy + Math.sin(a) * (r + 3)}
-        x2={cx + Math.cos(a) * (r + 7)}
-        y2={cy + Math.sin(a) * (r + 7)}
+        x1={q3(cx + Math.cos(a) * (r + 3))}
+        y1={q3(cy + Math.sin(a) * (r + 3))}
+        x2={q3(cx + Math.cos(a) * (r + 7))}
+        y2={q3(cy + Math.sin(a) * (r + 7))}
       />
     );
   }
@@ -1006,7 +1014,13 @@ function Knob({ cx, cy, r, angle = -40 }) {
   return (
     <g className="knob">
       <circle cx={cx} cy={cy} r={r} />
-      <line x1={cx} y1={cy} x2={cx + Math.cos(pa) * r * 0.85} y2={cy + Math.sin(pa) * r * 0.85} className="knobPointer" />
+      <line
+        x1={cx}
+        y1={cy}
+        x2={q3(cx + Math.cos(pa) * r * 0.85)}
+        y2={q3(cy + Math.sin(pa) * r * 0.85)}
+        className="knobPointer"
+      />
       {ticks}
     </g>
   );
@@ -1418,6 +1432,8 @@ function ChemDiagram() {
   const CX = 104;
   const CY = 74;
 
+  const q = q3; // see q3: keeps SSR and client markup byte-identical
+
   // benzene: v0 right, then every 60° clockwise in screen coords
   const v = [];
   for (let k = 0; k < 6; k++) {
@@ -1460,15 +1476,24 @@ function ChemDiagram() {
   const nMe = step(N, 30); // N-methyl
 
   // pull a bond back from a labelled atom so it doesn't collide with text
-  const trim = (p, q, pad) => {
-    const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+  const trim = (p, r, pad) => {
+    const d = Math.hypot(r[0] - p[0], r[1] - p[1]);
     const f = pad / d;
-    return [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+    return [p[0] + (r[0] - p[0]) * f, p[1] + (r[1] - p[1]) * f];
   };
-  const bond = (p, q, key, padP = 0, padQ = 0) => {
-    const a = padP ? trim(p, q, padP) : p;
-    const b = padQ ? trim(q, p, padQ) : q;
-    return <line key={key} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="chemBond" />;
+  const bond = (p, r, key, padP = 0, padQ = 0) => {
+    const a = padP ? trim(p, r, padP) : p;
+    const b = padQ ? trim(r, p, padQ) : r;
+    return (
+      <line
+        key={key}
+        x1={q(a[0])}
+        y1={q(a[1])}
+        x2={q(b[0])}
+        y2={q(b[1])}
+        className="chemBond"
+      />
+    );
   };
   // inner stroke of an aromatic double bond, inset toward the ring center
   const arom = (i, j) => {
@@ -1476,10 +1501,10 @@ function ChemDiagram() {
     return (
       <line
         key={"ar" + i + j}
-        x1={CX + (v[i][0] - CX) * f}
-        y1={CY + (v[i][1] - CY) * f}
-        x2={CX + (v[j][0] - CX) * f}
-        y2={CY + (v[j][1] - CY) * f}
+        x1={q(CX + (v[i][0] - CX) * f)}
+        y1={q(CY + (v[i][1] - CY) * f)}
+        x2={q(CX + (v[j][0] - CX) * f)}
+        y2={q(CY + (v[j][1] - CY) * f)}
         className="chemBond"
       />
     );
@@ -1495,8 +1520,8 @@ function ChemDiagram() {
       {bond(O1, CH2ring, "d2", 9, 0)}
       {bond(CH2ring, O2, "d3", 0, 9)}
       {bond(O2, B, "d4", 9, 0)}
-      <text x={O1[0]} y={O1[1]} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
-      <text x={O2[0]} y={O2[1]} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
+      <text x={q(O1[0])} y={q(O1[1])} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
+      <text x={q(O2[0])} y={q(O2[1])} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
 
       {/* N-methylpropan-2-amine chain */}
       {bond(c1, cB, "s1")}
@@ -1504,8 +1529,8 @@ function ChemDiagram() {
       {bond(cA, me, "s3")}
       {bond(cA, N, "s4", 0, 10)}
       {bond(N, nMe, "s5", 10, 0)}
-      <text x={N[0]} y={N[1] - 1} className="chemAtom" textAnchor="middle" dominantBaseline="central">N</text>
-      <text x={N[0] + 8} y={N[1] - 11} className="chemH" textAnchor="middle">H</text>
+      <text x={q(N[0])} y={q(N[1] - 1)} className="chemAtom" textAnchor="middle" dominantBaseline="central">N</text>
+      <text x={q(N[0] + 8)} y={q(N[1] - 11)} className="chemH" textAnchor="middle">H</text>
 
       <text x="150" y="140" className="chemName">MDMA · C₁₁H₁₅NO₂</text>
     </svg>
