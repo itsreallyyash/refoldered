@@ -51,6 +51,25 @@ const ALBUMS = [
 const DISCS = ["PROJECTS", "DATA_LOG", "HISTORY", "CONTACT", "RECALL", "FRAGMENTS"];
 const SLOT_COUNT = DISCS.length;
 
+// Tempo per mix (matched by URL slug) so the scope thumps on the music's
+// actual grid instead of an arbitrary hash. Unknown tracks fall back to 118.
+const TRACK_BPM = {
+  "selected-ambient-works-25-part-one": 96,
+  "selected-ambient-works-25-part-two": 92,
+  "aphex-twin-selected-ambient": 88,
+  "acid-house-dj-set": 132,
+  "boards-of-canada-essential-mix": 84,
+  "white-pony-full-album": 104,
+  "black-stallion": 100,
+};
+
+function bpmForTrack(url) {
+  for (const slug of Object.keys(TRACK_BPM)) {
+    if (url && url.includes(slug)) return TRACK_BPM[slug];
+  }
+  return 118;
+}
+
 // Deterministic hash so SSR and client render the same dot fields.
 function hash2(i, j) {
   let h = (i * 374761393 + j * 668265263) | 0;
@@ -135,7 +154,7 @@ function PillCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const DPR = Math.min(2, window.devicePixelRatio || 1);
-    const W = 420;
+    const W = 480; // wide enough that the orbiting ring type never clips
     const H = 520;
     canvas.width = W * DPR;
     canvas.height = H * DPR;
@@ -351,7 +370,7 @@ function PillCanvas() {
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(-0.3);
-      ctx.font = "600 16px ui-monospace, Menlo, monospace";
+      ctx.font = "800 34px ui-monospace, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       for (let i = 0; i < n; i++) {
@@ -360,18 +379,28 @@ function PillCanvas() {
         if (isFront !== front) continue;
         const ch = RING_TEXT[i];
         if (ch === " ") continue;
-        const ex = Math.cos(a) * GR * 1.32;
-        const ey = Math.sin(a) * GR * 0.34;
+        const ex = Math.cos(a) * GR * 1.22;
+        const ey = Math.sin(a) * GR * 0.38;
         ctx.save();
         ctx.translate(ex, ey);
-        ctx.rotate(Math.atan2(Math.cos(a) * 0.34, -Math.sin(a) * 1.32));
+        ctx.rotate(Math.atan2(Math.cos(a) * 0.38, -Math.sin(a) * 1.22));
+        // knock a dark gap out of the globe behind each glyph so the
+        // heavy type stays readable against the dot field
+        if (front) {
+          ctx.fillStyle = "rgba(7,7,6,0.82)";
+          ctx.fillRect(-13, -19, 26, 38);
+        }
         ctx.fillStyle =
           ch === "·"
             ? "#d43d2a"
             : front
-              ? "rgba(240,238,230,0.95)"
-              : "rgba(240,238,230,0.26)";
+              ? "#f6f4ec"
+              : "rgba(240,238,230,0.22)";
         ctx.fillText(ch, 0, 0);
+        if (front) {
+          // double-strike for extra weight
+          ctx.fillText(ch, 0.6, 0);
+        }
         ctx.restore();
       }
       ctx.restore();
@@ -616,12 +645,12 @@ function SceneCanvas() {
 
     /* ---- dot-trail field behind the coin ---- */
     for (let y = 180; y <= 630; y += 9) {
-      for (let x = 380; x <= 990; x += 13) {
-        const dx = (x - 690) / 310;
+      for (let x = 350; x <= 960; x += 13) {
+        const dx = (x - 660) / 310;
         const dy = (y - 405) / 235;
         const d2 = dx * dx + dy * dy;
         if (d2 > 1) continue;
-        const ix = (x - 660) / 208;
+        const ix = (x - 630) / 208;
         const iy = (y - 410) / 262;
         if (ix * ix + iy * iy < 1) continue;
         const b = 1 - d2;
@@ -1018,7 +1047,7 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
         {title}
       </text>
       <text x="52" y="306" className="scopeText">
-        Vpp {vpp}  Vrms {vrms}  Freq {freq}
+        Vpp {vpp}  Vrms {vrms}  {freq}
       </text>
       {/* right panel */}
       <line x1="368" y1="20" x2="368" y2="380" className="scopeDivider" />
@@ -1076,14 +1105,15 @@ function ScopeSVG({ playing, vpp, vrms, freq, title }) {
 
 /* ================= CRT SCOPE SCREEN =================
    Real-time oscilloscope render: a phosphor-persistence canvas laid over
-   the SVG screen. The trace is a trigger-locked synthesis driven by a
-   per-track BPM (hashed from the track id) — a pitch-dropping kick
-   fundamental, offbeat hat noise, and drifting harmonics, all riding a
-   beat envelope, with afterglow trails like a slow-phosphor CRT. */
-function ScopeScreen({ playing, seed }) {
+   the SVG screen. The beat clock is the SoundCloud playhead itself —
+   mediaTime resyncs the signal clock, so the thump lands on the track's
+   own BPM grid (from TRACK_BPM), freezes on stall, and jumps on seek.
+   One tight kick per beat, snare noise on the 2 and 4, hat ticks on the
+   offbeats, near-silence between — rhythm you can see. */
+function ScopeScreen({ playing, seed, bpm, mediaTime }) {
   const ref = useRef(null);
-  const propsRef = useRef({ playing, seed });
-  propsRef.current = { playing, seed };
+  const propsRef = useRef({ playing, seed, bpm, mediaTime });
+  propsRef.current = { playing, seed, bpm, mediaTime };
 
   useEffect(() => {
     const canvas = ref.current;
@@ -1103,53 +1133,59 @@ function ScopeScreen({ playing, seed }) {
 
     let raf;
     let last = performance.now();
-    let t = 0; // signal clock — only advances while playing
+    let t = 0; // signal clock, resynced to the playhead
+    let lastMt = -1;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(80, now - last);
       last = now;
-      const { playing, seed } = propsRef.current;
+      const { playing, seed, bpm, mediaTime } = propsRef.current;
       if (playing) t += dt / 1000;
+      // hard-lock to the widget's playhead whenever it drifts
+      if (mediaTime !== lastMt) {
+        lastMt = mediaTime;
+        if (Math.abs(t - mediaTime) > 0.25) t = mediaTime;
+      }
 
       // fade the phosphor
       tctx.globalCompositeOperation = "destination-out";
-      tctx.fillStyle = `rgba(0,0,0,${playing ? 0.14 : 0.3})`;
+      // a scrolling trace smears if persistence is too long
+      tctx.fillStyle = `rgba(0,0,0,${playing ? 0.42 : 0.3})`;
       tctx.fillRect(0, 0, W, H);
       tctx.globalCompositeOperation = "source-over";
 
-      const bpm = 96 + (seed % 49);
-      const beat = (t * bpm) / 60;
-      const bp = beat % 1;
-      const bar = Math.floor(beat / 4);
-      const kick = Math.exp(-bp * 5.5);
-      // harmonic mix drifts once per bar so the wave keeps evolving
-      const cyc = 2 + (seed % 3);
-      const a2 = 0.22 + 0.3 * hash2(seed, bar);
-      const a3 = 0.1 + 0.18 * hash2(seed + 7, bar);
-      const amp = playing
-        ? 0.14 + 0.58 * kick + 0.08 * Math.sin(t * 0.8)
-        : 0.012;
-      // offbeat hat: a burst of noise halfway through even beats
-      const hatEnv =
-        beat % 2 >= 1 ? Math.exp(-Math.pow((bp - 0.5) * 9, 2)) * 0.3 : 0;
+      // The screen is a time window: BEATS_ON_SCREEN beats span the width,
+      // newest sample at the right edge. So the beat grid is drawn in
+      // space — you watch kicks march leftward at exactly the track's
+      // tempo instead of the whole trace breathing at once.
+      const BEATS_ON_SCREEN = 4;
+      const beatNow = (t * bpm) / 60;
+      const cyc = 12 + (seed % 8); // carrier cycles per beat
 
-      const N = 220;
+      const N = 560;
       const nf = Math.floor(now / 16);
       tctx.beginPath();
       for (let i = 0; i <= N; i++) {
-        const x = i / N;
-        // kick fundamental drops in pitch across the beat, scope-triggered
-        const drop = 1 + 2.2 * kick;
-        const base =
-          Math.sin(Math.PI * 2 * cyc * drop * x) +
-          a2 * Math.sin(Math.PI * 2 * cyc * 2 * x + t * 0.7) +
-          a3 * Math.sin(Math.PI * 2 * cyc * 3 * x + t * 1.3);
-        const hat = hatEnv * (hash2(i, nf) - 0.5) * 2;
-        const fuzz = (hash2(i * 3 + 1, nf) - 0.5) * 0.02;
-        const y = H / 2 - (amp * base + hat + fuzz) * H * 0.42;
+        const u = i / N;
+        const beatPos = beatNow - (1 - u) * BEATS_ON_SCREEN;
+        const bp = beatPos - Math.floor(beatPos);
+        const idx = Math.floor(beatPos);
+        // kick: hard attack on the beat, dead by a third of it, with the
+        // downbeat of each bar hitting harder
+        const env = Math.exp(-bp * 9) * (idx % 4 === 0 ? 1.25 : 1);
+        // snare on 2 and 4, hat tick on every offbeat
+        const snare = idx % 2 === 1 ? Math.exp(-bp * 7) * 0.5 : 0;
+        const hat = Math.exp(-Math.pow((bp - 0.5) * 14, 2)) * 0.3;
+        const carrier = Math.sin(beatPos * Math.PI * 2 * cyc);
+        const noise = (hash2(i, nf) - 0.5) * 2;
+        const noise2 = (hash2(i * 7 + 3, nf) - 0.5) * 2;
+        const value = playing
+          ? env * carrier * 0.62 + snare * noise * 0.3 + hat * noise2 * 0.22
+          : (hash2(i * 3 + 1, nf) - 0.5) * 0.05;
+        const y = H / 2 - value * H * 0.44;
         if (i === 0) tctx.moveTo(0, y);
-        else tctx.lineTo(x * W, y);
+        else tctx.lineTo(u * W, y);
       }
       // glow pass then hot core, like a real CRT beam
       tctx.shadowColor = "#ff2d12";
@@ -1177,56 +1213,147 @@ function ScopeScreen({ playing, seed }) {
   return <canvas ref={ref} className="scopeScreenCanvas" />;
 }
 
-/* ================= EVIDENCE TAG =================
-   A shipping-style evidence tag: reinforced punch hole with a string,
-   filled-in case fields, a rotated red HOLD stamp, and a partial
-   fingerprint — floats in place via CSS. */
-function EvidenceTag() {
-  // torn-edge polygon, computed zigzag
-  const pts = [];
-  for (let x = 0; x <= 180; x += 12) pts.push(`${x},${x % 24 === 0 ? 0 : 4}`);
-  for (let y = 0; y <= 140; y += 12) pts.push(`${y % 24 === 0 ? 180 : 176},${y}`);
-  for (let x = 180; x >= 0; x -= 12) pts.push(`${x},${x % 24 === 0 ? 140 : 136}`);
-  for (let y = 140; y >= 0; y -= 12) pts.push(`${y % 24 === 0 ? 0 : 4},${y}`);
-  // partial fingerprint: broken concentric arcs
-  const fp = [];
-  for (let r = 3; r <= 15; r += 3) {
-    const a0 = (r * 37) % 360;
-    fp.push(
-      <path
-        key={r}
-        d={`M ${138 + r * Math.cos((a0 * Math.PI) / 180)},${52 + r * Math.sin((a0 * Math.PI) / 180)} A ${r},${r} 0 ${r % 6 === 0 ? 1 : 0} 1 ${138 + r * Math.cos(((a0 + 200) * Math.PI) / 180)},${52 + r * Math.sin(((a0 + 200) * Math.PI) / 180)}`}
-        className="fpArc"
-      />
-    );
-  }
+/* ================= RAVE FLYER =================
+   A photocopied early-90s rave flyer, in the spirit of the ones that got
+   handed out at petrol stations: black field, stacked wireframe spheres
+   receding into the floor, vertical type up the left edge, the headline
+   set sideways up the right. Links out to the instagram.
+   The spheres are drawn as real latitude/longitude wireframes projected
+   with perspective, so the moiré comes from the geometry, not a texture. */
+function RaveFlyer() {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const W = 208;
+    const H = 286;
+    // drawn large, displayed smaller so it fits under the changer without
+    // losing the fine wireframe detail
+    const S = 0.78;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W * S + "px";
+    canvas.style.height = H * S + "px";
+    const c = canvas.getContext("2d");
+    c.setTransform(DPR, 0, 0, DPR, 0, 0);
+    c.clearRect(0, 0, W, H);
+
+    // art window
+    const AX = 22;
+    const AY = 40;
+    const AW = 128;
+    const AH = 168;
+    c.fillStyle = "#000";
+    c.fillRect(AX, AY, AW, AH);
+    c.save();
+    c.beginPath();
+    c.rect(AX, AY, AW, AH);
+    c.clip();
+
+    // three spheres, shrinking and flattening as they recede
+    const spheres = [
+      { cx: AX + AW * 0.5, cy: AY + 52, r: 46, sq: 1, w: 0.85 },
+      { cx: AX + AW * 0.46, cy: AY + 116, r: 38, sq: 0.62, w: 0.6 },
+      { cx: AX + AW * 0.42, cy: AY + 152, r: 30, sq: 0.34, w: 0.4 },
+    ];
+
+    spheres.forEach(({ cx, cy, r, sq, w }) => {
+      c.strokeStyle = `rgba(255,255,255,${w})`;
+      c.lineWidth = 0.5;
+      // latitude rings: circles of decreasing radius, squashed vertically
+      for (let k = -8; k <= 8; k++) {
+        const lat = (k / 9) * (Math.PI / 2);
+        const rr = r * Math.cos(lat);
+        const yy = cy + r * Math.sin(lat) * sq;
+        c.beginPath();
+        c.ellipse(cx, yy, rr, rr * 0.3 * sq, 0, 0, Math.PI * 2);
+        c.stroke();
+      }
+      // longitude arcs: ellipses of varying width through the poles
+      for (let k = 0; k < 12; k++) {
+        const ph = (k / 12) * Math.PI;
+        c.beginPath();
+        c.ellipse(cx, cy, Math.abs(r * Math.cos(ph)), r * sq, 0, 0, Math.PI * 2);
+        c.stroke();
+      }
+    });
+    c.restore();
+
+    // window rule
+    c.strokeStyle = "rgba(255,255,255,0.9)";
+    c.lineWidth = 1;
+    c.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
+
+    // registration dots, pushed to the outer corners clear of the headline
+    c.fillStyle = "#f0eee6";
+    [
+      [12, 21],
+      [W - 12, 21],
+    ].forEach(([x, y]) => {
+      c.beginPath();
+      c.arc(x, y, 7, 0, Math.PI * 2);
+      c.fill();
+    });
+
+    const mono = (px, weight = 700) =>
+      `${weight} ${px}px ui-monospace, Menlo, monospace`;
+
+    // headline across the top
+    c.fillStyle = "#f0eee6";
+    c.font = mono(11);
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("A WORLD BEYOND", W / 2, 21);
+
+    // vertical credits up the left edge
+    c.save();
+    c.translate(13, AY + AH);
+    c.rotate(-Math.PI / 2);
+    c.textAlign = "left";
+    c.font = mono(9, 600);
+    c.fillText("AT  ", 0, 0);
+    c.font = mono(15);
+    c.fillText("REFOLDERED", 20, 0);
+    c.font = mono(9, 600);
+    c.fillText("· LONDON RD ·", 122, 0);
+    c.restore();
+
+    // headline up the right edge
+    c.save();
+    c.translate(W - 14, AY + AH);
+    c.rotate(-Math.PI / 2);
+    c.textAlign = "left";
+    c.font = mono(26, 800);
+    c.fillText("RAVE", 0, 0);
+    c.font = mono(8, 600);
+    c.fillText("···TECHNO WIZOS···", 56, -8);
+    c.restore();
+
+    // price line + destination footer
+    c.textAlign = "center";
+    c.font = mono(7.5, 600);
+    c.fillStyle = "rgba(240,238,230,0.75)";
+    c.fillText("£2.00 · £1.50 WITH FLYER · 9.30 START", W / 2, AY + AH + 12);
+
+    c.font = mono(13, 800);
+    c.fillStyle = "#f0eee6";
+    c.fillText("DESTINATION:", W / 2, AY + AH + 30);
+    c.fillStyle = "#d43d2a";
+    c.font = mono(15, 800);
+    c.fillText("@REFOLDERED", W / 2, AY + AH + 47);
+  }, []);
+
   return (
-    <svg className="evidenceSvg" viewBox="-14 -14 202 168">
-      {/* string through the punch hole */}
-      <path d="M 14,16 C -2,4 -8,-4 -12,-12" className="tagString" />
-      <polygon points={pts.join(" ")} className="tornEdge" />
-      <circle cx="18" cy="18" r="6.5" className="tagHole" />
-      <circle cx="18" cy="18" r="3" className="tagHoleIn" />
-      <rect x="14" y="14" width="152" height="112" className="dashedBox" />
-      <text x="86" y="40" textAnchor="middle" className="tagTitle">&#9668;EVIDENCE&#9658;</text>
-      <line x1="26" y1="48" x2="146" y2="48" className="tagRule" />
-      <text x="26" y="66" className="tagField">CASE Nº</text>
-      <text x="76" y="66" className="tagFill">0819—∞</text>
-      <line x1="72" y1="69" x2="146" y2="69" className="tagLine" />
-      <text x="26" y="84" className="tagField">ITEM</text>
-      <text x="76" y="84" className="tagFill">802 MIN</text>
-      <line x1="72" y1="87" x2="146" y2="87" className="tagLine" />
-      <text x="26" y="102" className="tagField">SEALED</text>
-      <line x1="72" y1="105" x2="120" y2="105" className="tagLine" />
-      {fp}
-      {/* red HOLD stamp, skewed like it was pressed by hand */}
-      <g transform="rotate(-12 90 116)">
-        <rect x="56" y="106" width="68" height="21" className="stampBox" />
-        <text x="90" y="121" textAnchor="middle" className="stampText">HOLD</text>
-      </g>
-      <polygon points="150,122 142,108 158,108" className="tagWarn" />
-      <text x="150" y="120" textAnchor="middle" className="tagWarnMark">!</text>
-    </svg>
+    <a
+      href="https://instagram.com/refoldered"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flyerLink"
+    >
+      <canvas ref={ref} className="flyerCanvas" />
+    </a>
   );
 }
 
@@ -1280,52 +1407,107 @@ function EuphoriaTicket() {
   );
 }
 
-/* ================= CHEM DIAGRAM ================= */
+/* ================= MDMA STRUCTURE =================
+   The real thing: 3,4-methylenedioxy-N-methylamphetamine, C11H15NO2.
+   A benzodioxole (benzene with an –O–CH2–O– bridge fused across C3–C4)
+   carrying a –CH2–CH(CH3)–NH–CH3 chain at C1. Every vertex is computed:
+   the hexagon from 60° steps, the fused five-ring as a regular pentagon
+   sharing the C3–C4 edge, the chain as a 30° zig-zag off the ring axis. */
 function ChemDiagram() {
-  // fused bicyclic drawn from exact hexagon vertices
-  const hex = (cx, cy, r, rot = 0) => {
-    const v = [];
-    for (let k = 0; k < 6; k++) {
-      const a = ((60 * k + rot) * Math.PI) / 180;
-      v.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
-    }
-    return v;
+  const L = 30; // bond length
+  const CX = 104;
+  const CY = 74;
+
+  // benzene: v0 right, then every 60° clockwise in screen coords
+  const v = [];
+  for (let k = 0; k < 6; k++) {
+    const a = (k * 60 * Math.PI) / 180;
+    v.push([CX + L * Math.cos(a), CY + L * Math.sin(a)]);
+  }
+  // C1 bears the chain (v0); the dioxole is fused across C3–C4 (v3–v2)
+  const A = v[3];
+  const B = v[2];
+
+  // regular pentagon on edge A–B, bulging away from the ring center
+  const mx = (A[0] + B[0]) / 2;
+  const my = (A[1] + B[1]) / 2;
+  const nl = Math.hypot(mx - CX, my - CY);
+  const nx = (mx - CX) / nl;
+  const ny = (my - CY) / nl;
+  const apo = L / (2 * Math.tan(Math.PI / 5));
+  const P = [mx + nx * apo, my + ny * apo];
+  const R5 = L / (2 * Math.sin(Math.PI / 5));
+  const angA = Math.atan2(A[1] - P[1], A[0] - P[0]);
+  // B sits at angA + 72°, so the three free vertices run the other way
+  const pent = (k) => [
+    P[0] + R5 * Math.cos(angA - (k * 72 * Math.PI) / 180),
+    P[1] + R5 * Math.sin(angA - (k * 72 * Math.PI) / 180),
+  ];
+  const O1 = pent(1); // bonded to A
+  const CH2ring = pent(2);
+  const O2 = pent(3); // bonded to B
+
+  // side chain off C1, zig-zagging ±30° about the ring axis
+  const step = (p, deg) => [
+    p[0] + L * Math.cos((deg * Math.PI) / 180),
+    p[1] + L * Math.sin((deg * Math.PI) / 180),
+  ];
+  const c1 = v[0];
+  const cB = step(c1, -30); // benzylic CH2
+  const cA = step(cB, 30); // CH bearing the methyl
+  const me = step(cA, 90); // α-methyl, pointing down
+  const N = step(cA, -30); // secondary amine
+  const nMe = step(N, 30); // N-methyl
+
+  // pull a bond back from a labelled atom so it doesn't collide with text
+  const trim = (p, q, pad) => {
+    const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    const f = pad / d;
+    return [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
   };
-  const A = hex(62, 76, 30, 0);
-  const B = hex(114, 106, 30, 0);
-  const edge = (v, i, j, cls = "chemBond") => (
-    <line key={cls + i + "-" + j} x1={v[i][0]} y1={v[i][1]} x2={v[j][0]} y2={v[j][1]} className={cls} />
-  );
-  const inner = (v, i, j) => {
-    const mx = (v[i][0] + v[j][0]) / 2;
-    const my = (v[i][1] + v[j][1]) / 2;
-    const cxm = v.reduce((s, p) => s + p[0], 0) / 6;
-    const cym = v.reduce((s, p) => s + p[1], 0) / 6;
-    const f = 0.72;
+  const bond = (p, q, key, padP = 0, padQ = 0) => {
+    const a = padP ? trim(p, q, padP) : p;
+    const b = padQ ? trim(q, p, padQ) : q;
+    return <line key={key} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="chemBond" />;
+  };
+  // inner stroke of an aromatic double bond, inset toward the ring center
+  const arom = (i, j) => {
+    const f = 0.76;
     return (
       <line
-        key={"in" + i + j + cxm}
-        x1={cxm + (v[i][0] - cxm) * f}
-        y1={cym + (v[i][1] - cym) * f}
-        x2={cxm + (v[j][0] - cxm) * f}
-        y2={cym + (v[j][1] - cym) * f}
+        key={"ar" + i + j}
+        x1={CX + (v[i][0] - CX) * f}
+        y1={CY + (v[i][1] - CY) * f}
+        x2={CX + (v[j][0] - CX) * f}
+        y2={CY + (v[j][1] - CY) * f}
         className="chemBond"
       />
     );
   };
+
   return (
-    <svg className="chemSvg" viewBox="-26 0 250 180">
-      {[0, 1, 2, 3, 4, 5].map((k) => edge(A, k, (k + 1) % 6))}
-      {[inner(A, 0, 1), inner(A, 2, 3), inner(A, 4, 5)]}
-      {[0, 1, 2, 3, 4, 5].map((k) => edge(B, k, (k + 1) % 6, "chemBond b"))}
-      {/* substituents */}
-      <line x1={A[3][0]} y1={A[3][1]} x2={A[3][0] - 22} y2={A[3][1] - 12} className="chemBond" />
-      <text x={A[3][0] - 42} y={A[3][1] - 10} className="chemLabel">H3C</text>
-      <line x1={B[5][0]} y1={B[5][1]} x2={B[5][0] + 16} y2={B[5][1] - 22} className="chemBond" />
-      <text x={B[5][0] + 20} y={B[5][1] - 26} className="chemLabel">CH3</text>
-      <line x1={B[0][0]} y1={B[0][1]} x2={B[0][0] + 24} y2={B[0][1]} className="chemBond" />
-      <text x={B[0][0] + 28} y={B[0][1] + 4} className="chemLabel">N&#8211;CH3</text>
-      <text x={B[1][0] - 4} y={B[1][1] + 14} className="chemLabel">N</text>
+    <svg className="chemSvg" viewBox="14 16 244 132">
+      {[0, 1, 2, 3, 4, 5].map((k) => bond(v[k], v[(k + 1) % 6], "r" + k))}
+      {[arom(0, 1), arom(2, 3), arom(4, 5)]}
+
+      {/* methylenedioxy bridge */}
+      {bond(A, O1, "d1", 0, 9)}
+      {bond(O1, CH2ring, "d2", 9, 0)}
+      {bond(CH2ring, O2, "d3", 0, 9)}
+      {bond(O2, B, "d4", 9, 0)}
+      <text x={O1[0]} y={O1[1]} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
+      <text x={O2[0]} y={O2[1]} className="chemAtom" textAnchor="middle" dominantBaseline="central">O</text>
+
+      {/* N-methylpropan-2-amine chain */}
+      {bond(c1, cB, "s1")}
+      {bond(cB, cA, "s2")}
+      {bond(cA, me, "s3")}
+      {bond(cA, N, "s4", 0, 10)}
+      {bond(N, nMe, "s5", 10, 0)}
+      <text x={N[0]} y={N[1] - 1} className="chemAtom" textAnchor="middle" dominantBaseline="central">N</text>
+      <text x={N[0] + 8} y={N[1] - 11} className="chemH" textAnchor="middle">H</text>
+
+      <text x="150" y="140" className="chemName">MDMA · C₁₁H₁₅NO₂</text>
     </svg>
   );
 }
@@ -1612,22 +1794,6 @@ function PillsBreak() {
   );
 }
 
-/* ================= ARCHIVE RECALL ================= */
-function ArchiveRecall() {
-  return (
-    <div className="recallWrap">
-      <div className="recallLabel">[ ARCHIVE RECALL ]</div>
-      <svg viewBox="0 0 20 44" className="recallArrowSvg">
-        <line x1="10" y1="0" x2="10" y2="34" strokeDasharray="3 4" />
-        <polyline points="4,32 10,42 16,32" fill="none" />
-      </svg>
-      <div className="recallSeal">
-        <span>E</span>
-      </div>
-    </div>
-  );
-}
-
 /* ================= PAGE ================= */
 export default function Home() {
   const [entered, setEntered] = useState(false);
@@ -1635,6 +1801,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [wavePhase, setWavePhase] = useState(0);
   const [trackTitle, setTrackTitle] = useState("");
+  const [trackBpm, setTrackBpm] = useState(118);
   const [mediaTime, setMediaTime] = useState(0);
   const [vidHash, setVidHash] = useState(1);
   const [hauntTip, setHauntTip] = useState(null);
@@ -1686,7 +1853,7 @@ export default function Home() {
   const energy = playing ? 0.3 + 0.7 * (eA + (eB - eA) * (segF - segI)) : 0.15;
   const vpp = playing ? (2.04 * energy + 0.4).toFixed(2) + "V" : "--.-";
   const vrms = playing ? (0.72 * energy + 0.14).toFixed(2) + "V" : "--.-";
-  const freq = playing ? (98.3 + Math.sin(p * 0.7) * 1.2).toFixed(1) + "Hz" : "--.-";
+  const freq = playing ? `BPM ${trackBpm}` : "BPM ---";
 
   // hover haunt: every element highlights and whispers a random line
   function haunt(base = "") {
@@ -1763,11 +1930,12 @@ export default function Home() {
               freq={freq}
               title={titleShown}
             />
-            <ScopeScreen playing={playing} seed={vidHash} />
-          </div>
-
-          <div {...haunt("recallPos")}>
-            <ArchiveRecall />
+            <ScopeScreen
+              playing={playing}
+              seed={vidHash}
+              bpm={trackBpm}
+              mediaTime={mediaTime}
+            />
           </div>
 
           <div {...haunt("holdingWrap")}>
@@ -1785,8 +1953,8 @@ export default function Home() {
             <PillsBreak />
           </div>
 
-          <div {...haunt("evidencePos")}>
-            <EvidenceTag />
+          <div className="flyerPos">
+            <RaveFlyer />
           </div>
 
           <div {...haunt("ticketPos")}>
@@ -1812,8 +1980,9 @@ export default function Home() {
 
       <SoundCloudPlayer
         onTimeUpdate={(t) => setMediaTime(t)}
-        onTrackChange={(title) => {
+        onTrackChange={(title, url) => {
           setTrackTitle(title);
+          setTrackBpm(bpmForTrack(url));
           let h = 0;
           for (const ch of title) h = (h * 31 + ch.charCodeAt(0)) | 0;
           setVidHash(Math.abs(h) || 1);

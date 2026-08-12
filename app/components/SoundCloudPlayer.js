@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 // The SoundCloud Widget API only loads direct track/playlist ("sets") URLs —
-// a profile URL (e.g. soundcloud.com/deftones_official) silently fails to
-// load anything, which is why playback never started before.
+// a profile URL (e.g. soundcloud.com/deftones_official) silently fails.
+//
+// It also matters WHOSE upload it is: official label uploads stream as
+// 30-second SNIP previews unless the listener has Go+, which is why
+// playback used to die after ~15s. These are all full-length user
+// uploads (policy ALLOW, 50–170 min each), verified by probing
+// getCurrentSound().duration — long mixes suit a page meant to be
+// left running.
 const TRACKS = [
-  "https://soundcloud.com/aphex-twin-official/introduction",
-  "https://soundcloud.com/boardsofcanada/the-process",
-  "https://soundcloud.com/boardsofcanada/open-the-light",
-  "https://soundcloud.com/boardsofcanada/seven-forty-seven",
-  "https://soundcloud.com/deftones_official/sets/deftones-1",
-  "https://soundcloud.com/deftones_official/sets/white-pony-2",
-  "https://soundcloud.com/deftones_official/ceremony",
-  "https://soundcloud.com/deftones_official/headup",
-  "https://soundcloud.com/deftones_official/risk",
-  "https://soundcloud.com/deftones_official/prince",
-  "https://soundcloud.com/deftones_official/ecdysis",
+  "https://soundcloud.com/selectabwoy/aphex-twin-selected-ambient-works-25-part-one",
+  "https://soundcloud.com/selectabwoy/aphex-twin-selected-ambient-works-25-part-two",
+  "https://soundcloud.com/sensei_rebel/aphex-twin-selected-ambient",
+  "https://soundcloud.com/meta-house/recommended-01-aphex-twin-live-fuse-acid-house-dj-set",
+  "https://soundcloud.com/asleepfromdaytoronto/boards-of-canada-essential-mix",
+  "https://soundcloud.com/user-213366428-867150662/deftones-white-pony-full-album",
+  "https://soundcloud.com/snsmix/sns-deftones-white-pony-black-stallion-project",
 ];
 
 export default function SoundCloudPlayer({
@@ -28,7 +30,7 @@ export default function SoundCloudPlayer({
   const iframeRef = useRef(null);
   const widgetRef = useRef(null);
   const initializedRef = useRef(false);
-  const [currentTrack, setCurrentTrack] = useState("Loading...");
+  const skipStreakRef = useRef(0);
 
   // Load SoundCloud Widget API. Guarded against React StrictMode's dev-only
   // double-invoke, which would otherwise bind two widgets to the same
@@ -62,11 +64,23 @@ export default function SoundCloudPlayer({
       loadRandomTrack();
 
       widget.bind(window.SC.Widget.Events.PLAY, () => {
-        setPlaying(true);
         widget.getCurrentSound((sound) => {
+          // safety net in case an upload later turns into a preview:
+          // skip anything SNIP-policy or suspiciously short (cap the
+          // streak so a bad run can't loop forever)
+          const isSnip =
+            sound &&
+            (sound.policy === "SNIP" ||
+              (typeof sound.duration === "number" && sound.duration < 120000));
+          if (isSnip && skipStreakRef.current < 6) {
+            skipStreakRef.current += 1;
+            loadRandomTrack();
+            return;
+          }
+          skipStreakRef.current = 0;
+          setPlaying(true);
           const title = sound?.title || "Now playing";
-          setCurrentTrack(title);
-          onTrackChange?.(title);
+          onTrackChange?.(title, sound?.permalink_url || "");
         });
       });
 
@@ -79,11 +93,13 @@ export default function SoundCloudPlayer({
         loadRandomTrack();
       });
 
+      // currentPosition is ms into the track; relativePosition is a 0–1
+      // fraction, so it must not be used as a clock.
       widget.bind(
         window.SC.Widget.Events.PLAY_PROGRESS,
-        ({ relativePosition }) => {
-          if (onTimeUpdate && relativePosition < 500000) {
-            onTimeUpdate(relativePosition / 1000);
+        ({ currentPosition }) => {
+          if (onTimeUpdate && typeof currentPosition === "number") {
+            onTimeUpdate(currentPosition / 1000);
           }
         }
       );
@@ -120,46 +136,29 @@ export default function SoundCloudPlayer({
         style={{ display: "none" }}
       />
 
-      <div
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          right: "20px",
-          color: "#f0eee6",
-          fontFamily: "inherit",
-          fontSize: "11px",
-          letterSpacing: "0.12em",
-          zIndex: 50,
-          background: "rgba(7, 7, 6, 0.85)",
-          padding: "9px 12px",
-          border: "1px dashed rgba(212, 61, 42, 0.55)",
-          maxWidth: "230px",
-        }}
-      >
-        {playing ? (
-          <div style={{ opacity: 0.85, wordBreak: "break-word", textTransform: "uppercase" }}>
-            <span style={{ color: "#d43d2a" }}>▸ </span>
-            {currentTrack.slice(0, 40)}
-            {currentTrack.length > 40 ? "…" : ""}
-          </div>
-        ) : (
-          <button
-            onClick={handlePlay}
-            style={{
-              padding: "8px 14px",
-              background: "transparent",
-              color: "#f0eee6",
-              border: "1px solid #f0eee6",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: "11px",
-              letterSpacing: "0.2em",
-            }}
-          >
-            PLAY
-          </button>
-        )}
-      </div>
+      {/* track title lives on the oscilloscope readout; while playing this
+          corner stays empty — the only control is starting it */}
+      {!playing && (
+        <button
+          onClick={handlePlay}
+          style={{
+            position: "fixed",
+            bottom: "20px",
+            right: "20px",
+            zIndex: 50,
+            padding: "9px 16px",
+            background: "rgba(7, 7, 6, 0.85)",
+            color: "#f0eee6",
+            border: "1px dashed rgba(212, 61, 42, 0.55)",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontSize: "11px",
+            letterSpacing: "0.2em",
+          }}
+        >
+          PLAY
+        </button>
+      )}
     </>
   );
 }

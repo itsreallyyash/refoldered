@@ -97,10 +97,9 @@ body {
 .coinWrap,
 .wordList,
 .scopeWrap,
-.recallPos,
 .holdingWrap,
 .pillsPos,
-.evidencePos,
+.flyerPos,
 .ticketPos,
 .chemPos,
 .siteTitle {
@@ -247,9 +246,9 @@ body {
 }
 .coinWrap {
   position: absolute;
-  left: 450px;
+  left: 390px;
   top: 150px;
-  width: 420px;
+  width: 480px;
   height: 520px;
 }
 .pillCanvas {
@@ -432,54 +431,6 @@ body {
   stroke: var(--red);
 }
 
-/* ---------- ARCHIVE RECALL ---------- */
-.recallPos {
-  position: absolute;
-  left: 1330px;
-  top: 545px;
-  width: 200px;
-}
-.recallWrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-.recallLabel {
-  font-size: 17px;
-  letter-spacing: 0.28em;
-  color: var(--ink);
-  white-space: nowrap;
-}
-.recallArrowSvg {
-  width: 18px;
-  height: 40px;
-}
-.recallArrowSvg line,
-.recallArrowSvg polyline {
-  stroke: var(--ink-mid);
-  stroke-width: 1.6;
-}
-.recallSeal {
-  width: 72px;
-  height: 72px;
-  border: 1.5px dashed var(--ink-mid);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.recallSeal span {
-  width: 44px;
-  height: 44px;
-  border: 1.4px solid var(--ink);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  color: var(--ink);
-}
-
 /* ---------- TAGS / EXTRAS ---------- */
 /* both paper artifacts drift in place like they're pinned to nothing */
 @keyframes floatEvidence {
@@ -490,17 +441,30 @@ body {
   0%, 100% { transform: rotate(8.5deg) translate3d(0, 0, 0); }
   50% { transform: rotate(6.2deg) translate3d(-4px, -12px, 0); }
 }
-.evidencePos {
+.flyerPos {
   position: absolute;
-  left: 44px;
-  top: 770px;
-  width: 200px;
+  left: 46px;
+  top: 752px;
+  z-index: 3;
   animation: floatEvidence 7.5s ease-in-out infinite;
 }
-.evidenceSvg {
-  width: 100%;
-  height: auto;
-  filter: drop-shadow(0 14px 16px rgba(0, 0, 0, 0.6));
+.flyerLink {
+  display: block;
+  line-height: 0;
+  filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.75));
+  transition: filter 0.3s ease;
+}
+.flyerCanvas {
+  display: block;
+  background: #060605;
+  border: 1px solid rgba(240, 238, 230, 0.5);
+  cursor: pointer;
+}
+.flyerLink:hover {
+  filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.75)) brightness(1.18);
+}
+.flyerLink:hover .flyerCanvas {
+  border-color: var(--red);
 }
 .ticketPos {
   position: absolute;
@@ -516,9 +480,9 @@ body {
 }
 .chemPos {
   position: absolute;
-  left: 1320px;
-  top: 740px;
-  width: 230px;
+  left: 1268px;
+  top: 620px;
+  width: 290px;
 }
 .chemSvg {
   width: 100%;
@@ -546,35 +510,9 @@ body {
   stroke-width: 1;
   stroke-dasharray: 5 4;
 }
-.tagTitle {
-  font-size: 19px;
-  fill: var(--ink);
-  font-family: inherit;
-  letter-spacing: 0.12em;
-}
-.tagHatch {
-  font-size: 16px;
-  fill: var(--ink-mid);
-  font-family: inherit;
-  letter-spacing: 0.1em;
-}
 .tagLine {
   stroke: var(--ink-dim);
   stroke-width: 1.6;
-}
-.tagWarn {
-  fill: none;
-  stroke: var(--ink-mid);
-  stroke-width: 1.4;
-}
-.tagWarnMark {
-  font-size: 10px;
-  fill: var(--ink-mid);
-  font-family: inherit;
-}
-.tagRule {
-  stroke: var(--ink-mid);
-  stroke-width: 1;
 }
 .tagField {
   font-size: 9.5px;
@@ -587,43 +525,6 @@ body {
   fill: var(--ink);
   font-family: inherit;
   letter-spacing: 0.12em;
-}
-.tagString {
-  fill: none;
-  stroke: var(--ink-mid);
-  stroke-width: 1.2;
-  stroke-dasharray: 1 3;
-}
-.tagHole {
-  fill: #070706;
-  stroke: var(--ink);
-  stroke-width: 1.3;
-}
-.tagHoleIn {
-  fill: none;
-  stroke: var(--ink-dim);
-  stroke-width: 1;
-}
-.fpArc {
-  fill: none;
-  stroke: var(--ink-dim);
-  stroke-width: 0.9;
-  stroke-dasharray: 4 2.5;
-}
-.stampBox {
-  fill: none;
-  stroke: var(--red);
-  stroke-width: 1.6;
-  stroke-dasharray: 2 2;
-  opacity: 0.85;
-}
-.stampText {
-  font-size: 15px;
-  fill: var(--red);
-  font-family: inherit;
-  font-weight: 600;
-  letter-spacing: 0.42em;
-  opacity: 0.85;
 }
 .stampRing {
   fill: none;
@@ -688,11 +589,24 @@ body {
 .chemBond {
   stroke: var(--ink-mid);
   stroke-width: 1.3;
+  stroke-linecap: round;
 }
-.chemLabel {
-  font-size: 13px;
-  fill: var(--ink-mid);
+.chemAtom {
+  font-size: 14px;
+  fill: var(--ink);
   font-family: inherit;
+}
+.chemH {
+  font-size: 9px;
+  fill: var(--ink-dim);
+  font-family: inherit;
+}
+.chemName {
+  font-size: 11px;
+  fill: var(--ink-dim);
+  font-family: inherit;
+  letter-spacing: 0.18em;
+  text-anchor: middle;
 }
 
 /* ---------- HAUNT (hover whisper) ---------- */
