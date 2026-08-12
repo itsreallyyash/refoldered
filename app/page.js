@@ -2923,15 +2923,26 @@ export default function Home() {
     });
   }
 
-  // poster scale-to-fit
+  // poster scale-to-fit, and measure the dead bars it leaves above and
+  // below. Driving the nag off the real bar height rather than an
+  // aspect-ratio guess means it only appears when there is genuinely
+  // room for it, and it can size itself to the space.
   useEffect(() => {
+    const root = document.documentElement;
     function onResize() {
       const s = Math.min(window.innerWidth / 1620, window.innerHeight / 1020);
-      document.documentElement.style.setProperty("--poster-scale", String(s));
+      root.style.setProperty("--poster-scale", String(s));
+      const bar = Math.max(0, (window.innerHeight - 1000 * s) / 2);
+      root.style.setProperty("--bar-h", bar + "px");
+      root.dataset.letterboxed = bar > 96 ? "1" : "0";
     }
     onResize();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
   }, []);
 
   function enter() {

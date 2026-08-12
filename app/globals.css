@@ -534,21 +534,24 @@ body {
   position: fixed;
   left: 0;
   right: 0;
+  height: var(--bar-h, 0px);
   z-index: 45;
   display: none;
   flex-direction: column;
   align-items: center;
+  justify-content: center; /* centres itself in whatever bar it's given */
   gap: 0.34rem;
   text-align: center;
   font-family: var(--font-mono), ui-monospace, monospace;
   pointer-events: none;
   padding: 0 1.2rem;
+  overflow: hidden;
 }
 .deviceNagTop {
-  top: calc(50% - (500px * var(--poster-scale)) - 3.4rem);
+  top: 0;
 }
 .deviceNagBottom {
-  top: calc(50% + (500px * var(--poster-scale)) + 1.5rem);
+  bottom: 0;
 }
 .nagShout {
   font-size: 1.5rem;
@@ -572,12 +575,9 @@ body {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-/* 1620x1020 is the poster's fit box; anything taller than that ratio
-   is letterboxed top and bottom */
-@media (max-aspect-ratio: 81 / 51) {
-  .deviceNag {
-    display: flex;
-  }
+/* set by the resize handler once the bars are big enough to hold it */
+html[data-letterboxed="1"] .deviceNag {
+  display: flex;
 }
 
 /* ---------- HAUNT (hover whisper) ---------- */
@@ -604,11 +604,12 @@ svg a.haunt:hover .discOuter {
 .hauntTip {
   position: fixed;
   z-index: 60;
-  max-width: calc(300px * var(--poster-scale));
   background: rgba(5, 5, 4, 0.92);
   border: 1px dashed var(--red);
   color: var(--ink);
-  font-size: clamp(7px, calc(0.68rem * var(--poster-scale)), 0.68rem);
+  /* No max-width: the box is sized by its own nowrap text, so a scaled
+     cap would just let the text spill past the border. */
+  font-size: clamp(5px, calc(0.68rem * var(--poster-scale)), 0.68rem);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: calc(0.5rem * var(--poster-scale)) calc(0.7rem * var(--poster-scale));
