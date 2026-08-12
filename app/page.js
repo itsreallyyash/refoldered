@@ -27,6 +27,19 @@ const CRYPTIC = [
   "do not chew the archive",
 ];
 
+// Changer geometry, shared by the scene canvas, the ASCII art canvas, and
+// the SVG overlay. x/y = poster position of the wrap; the rest are local.
+const TOWER = {
+  x: 36,
+  y: 76,
+  w: 280,
+  h: 680,
+  discCx: 192,
+  discCy0: 80,
+  discDy: 102,
+  discR: 48,
+};
+
 const ALBUMS = [
   { key: "deftones", url: "https://www.youtube.com/results?search_query=deftones+diamond+eyes+full+album" },
   { key: "acdc", url: "https://www.youtube.com/results?search_query=ac+dc+back+in+black+full+album" },
@@ -358,78 +371,60 @@ function SceneCanvas() {
     off.height = H;
     const g = off.getContext("2d");
 
-    const poly = (pts, fill) => {
-      g.beginPath();
-      g.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
-      g.closePath();
-      g.fillStyle = fill;
-      g.fill();
-    };
+    /* ---- BeoSound-style changer: flat wall slab, no cabinet box ----
+       Speaker grille slab on the left, glass disc strip on the right.
+       Poster coords = TOWER offset + local. */
+    const wx = (x) => TOWER.x + x;
+    const wy = (y) => TOWER.y + y;
 
-    /* ---- CD tower (poster coords via tower svg scale 280/300) ---- */
-    const tX = (x) => 36 + x * 0.93333;
-    const tY = (y) => 76 + y * 0.93333;
-
-    let grad = g.createLinearGradient(tX(60), 0, tX(100), 0);
-    grad.addColorStop(0, "#464646");
-    grad.addColorStop(1, "#181818");
-    poly(
-      [
-        [tX(60), tY(46)],
-        [tX(100), tY(70)],
-        [tX(100), tY(690)],
-        [tX(60), tY(666)],
-      ],
-      grad
-    );
-    for (let k = 0; k < 43; k++) {
-      const y = 46 + k * 14.6;
-      g.strokeStyle = k % 2 ? "#8a8a8a" : "#222222";
-      g.lineWidth = 1.6;
+    // speaker slab with dense horizontal fins
+    let grad = g.createLinearGradient(wx(18), 0, wx(96), 0);
+    grad.addColorStop(0, "#3c3c3c");
+    grad.addColorStop(0.5, "#2a2a2a");
+    grad.addColorStop(1, "#161616");
+    g.fillStyle = grad;
+    g.fillRect(wx(18), wy(30), 78, 620);
+    for (let y = 34; y < 648; y += 4.2) {
+      g.strokeStyle = Math.floor(y / 4.2) % 2 ? "#8f8f8f" : "#141414";
+      g.lineWidth = 1.4;
       g.beginPath();
-      g.moveTo(tX(60), tY(y));
-      g.lineTo(tX(100), tY(y + 24));
+      g.moveTo(wx(21), wy(y));
+      g.lineTo(wx(93), wy(y));
       g.stroke();
     }
-    poly(
-      [
-        [tX(100), tY(70)],
-        [tX(60), tY(46)],
-        [tX(230), tY(46)],
-        [tX(270), tY(70)],
-      ],
-      "#4e4e4e"
-    );
-    grad = g.createLinearGradient(0, tY(70), 0, tY(690));
-    grad.addColorStop(0, "#343434");
-    grad.addColorStop(1, "#1a1a1a");
-    g.fillStyle = grad;
-    g.fillRect(tX(100), tY(70), 158.7, 578.7);
-
+    // shadow gap between slab and glass
+    g.fillStyle = "#050505";
+    g.fillRect(wx(96), wy(40), 16, 600);
+    // glass panel: near-black with a faint edge glow
+    g.fillStyle = "#141414";
+    g.beginPath();
+    g.roundRect(wx(112), wy(18), 160, 648, 10);
+    g.fill();
+    g.strokeStyle = "#2e2e2e";
+    g.lineWidth = 3;
+    g.beginPath();
+    g.roundRect(wx(114), wy(20), 156, 644, 9);
+    g.stroke();
+    // discs: dark album faces with a soft top-left sheen — the ASCII art
+    // canvas paints the covers on top of these
     for (let k = 0; k < 6; k++) {
-      const cx = tX(185);
-      const cy = tY(140 + k * 100);
-      const r = 41;
-      const rg = g.createRadialGradient(cx, cy, 0, cx, cy, r);
-      rg.addColorStop(0, "#101010");
-      rg.addColorStop(0.3, "#9a9a9a");
-      rg.addColorStop(0.4, "#4e4e4e");
-      rg.addColorStop(0.72, "#c8c8c8");
-      rg.addColorStop(0.95, "#dedede");
-      rg.addColorStop(1, "#5a5a5a");
+      const cx = wx(TOWER.discCx);
+      const cy = wy(TOWER.discCy0 + k * TOWER.discDy);
+      const r = TOWER.discR;
+      const rg = g.createRadialGradient(cx - r / 3, cy - r / 3, 4, cx, cy, r);
+      rg.addColorStop(0, "#3d3d3d");
+      rg.addColorStop(0.6, "#242424");
+      rg.addColorStop(0.96, "#4a4a4a");
+      rg.addColorStop(1, "#1c1c1c");
       g.beginPath();
       g.arc(cx, cy, r, 0, Math.PI * 2);
       g.fillStyle = rg;
       g.fill();
       g.beginPath();
-      g.arc(cx, cy, 13, 0, Math.PI * 2);
+      g.arc(cx, cy, 8, 0, Math.PI * 2);
       g.fillStyle = "#060606";
       g.fill();
     }
-    g.fillStyle = "#3a3a3a";
-    g.fillRect(tX(112), tY(692), 26, 9.3);
-    g.fillRect(tX(230), tY(692), 26, 9.3);
 
     /* ---- dot-trail field behind the coin ---- */
     for (let y = 180; y <= 630; y += 9) {
@@ -558,95 +553,230 @@ function SceneCanvas() {
   return <canvas ref={ref} className="sceneCanvas" />;
 }
 
-/* ================= CD TOWER ================= */
-// Minimal album marks, one per disc, drawn in dark "negative" ink over the
-// bright halftone disc face — engraved-print style.
-function AlbumMark({ k, cx, cy }) {
-  switch (ALBUMS[k].key) {
-    case "deftones": // Diamond Eyes — white diamond
-      return (
-        <g className="albumMark">
-          <path d={`M ${cx},${cy - 19} L ${cx + 15},${cy} L ${cx},${cy + 19} L ${cx - 15},${cy} Z`} />
-          <line x1={cx - 15} y1={cy} x2={cx + 15} y2={cy} />
-          <line x1={cx - 7} y1={cy - 9} x2={cx + 7} y2={cy - 9} />
-        </g>
-      );
-    case "acdc": // high-voltage bolt
-      return (
-        <g className="albumMark filled">
-          <polygon
-            points={`${cx - 1},${cy - 21} ${cx + 9},${cy - 21} ${cx + 2},${cy - 5} ${cx + 11},${cy - 5} ${cx - 7},${cy + 21} ${cx - 2},${cy + 1} ${cx - 11},${cy + 1}`}
-          />
-        </g>
-      );
-    case "aphex": // the curled A
-      return (
-        <g className="albumMark">
-          <path
-            d={`M ${cx - 15},${cy + 13} Q ${cx - 19},${cy - 15} ${cx},${cy - 17} Q ${cx + 19},${cy - 15} ${cx + 15},${cy + 13}`}
-          />
-          <path d={`M ${cx - 9},${cy + 2} Q ${cx},${cy - 7} ${cx + 9},${cy + 2} Q ${cx + 2},${cy + 9} ${cx - 3},${cy + 3}`} />
-        </g>
-      );
-    case "acid": // acid house smiley
-      return (
-        <g className="albumMark">
-          <circle cx={cx} cy={cy} r="17" />
-          <circle cx={cx - 6} cy={cy - 5} r="2" className="markDot" />
-          <circle cx={cx + 6} cy={cy - 5} r="2" className="markDot" />
-          <path d={`M ${cx - 9},${cy + 4} A 10,10 0 0 0 ${cx + 9},${cy + 4}`} />
-        </g>
-      );
-    case "floyd": // the prism
-      return (
-        <g className="albumMark">
-          <path d={`M ${cx},${cy - 17} L ${cx + 17},${cy + 12} L ${cx - 17},${cy + 12} Z`} />
-          <line x1={cx - 28} y1={cy + 2} x2={cx - 7} y2={cy - 2} />
-          <line x1={cx + 6} y1={cy} x2={cx + 28} y2={cy - 8} />
-          <line x1={cx + 6} y1={cy + 2} x2={cx + 28} y2={cy + 1} />
-          <line x1={cx + 6} y1={cy + 4} x2={cx + 28} y2={cy + 10} />
-        </g>
-      );
-    default: // lcd — disco ball
-      return (
-        <g className="albumMark">
-          <circle cx={cx} cy={cy} r="17" />
-          <line x1={cx - 15} y1={cy - 8} x2={cx + 15} y2={cy - 8} />
-          <line x1={cx - 17} y1={cy} x2={cx + 17} y2={cy} />
-          <line x1={cx - 15} y1={cy + 8} x2={cx + 15} y2={cy + 8} />
-          <ellipse cx={cx} cy={cy} rx="7" ry="17" />
-          <ellipse cx={cx} cy={cy} rx="13" ry="17" />
-        </g>
-      );
+/* ================= ASCII IMAGE ENGINE + ALBUM COVERS =================
+   A real image→ASCII converter: the source image is drawn (or loaded) onto
+   an offscreen canvas, luminance-sampled on a character grid, mapped through
+   a density ramp, clipped to a circle, and typed onto the disc. Sources here
+   are procedurally drawn grayscale covers; swap drawCover for a same-origin
+   <img> (e.g. /covers/deftones.jpg) and the engine works unchanged. */
+const ASCII_RAMP = " .:-=+*#%@";
+
+function asciiCircle(ctx, sourceCanvas, cx, cy, r, cell, font) {
+  const S = sourceCanvas.width;
+  const img = sourceCanvas.getContext("2d").getImageData(0, 0, S, S).data;
+  const scale = S / (r * 2);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 1.5, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(240,238,230,0.95)";
+  for (let yy = 0; yy < r * 2; yy += cell) {
+    for (let xx = 0; xx < r * 2; xx += cell) {
+      const dx = xx - r;
+      const dy = yy - r;
+      if (dx * dx + dy * dy > r * r) continue;
+      const sx = Math.min(S - 1, Math.floor(xx * scale));
+      const sy = Math.min(S - 1, Math.floor(yy * scale));
+      const lum = img[(sy * S + sx) * 4];
+      const ci = Math.min(ASCII_RAMP.length - 1, Math.floor((lum / 255) * ASCII_RAMP.length));
+      const ch = ASCII_RAMP[ci];
+      if (ch === " ") continue;
+      ctx.fillText(ch, cx - r + xx + cell / 2, cy - r + yy + cell / 2);
+    }
+  }
+  ctx.restore();
+}
+
+// Grayscale renderings of each cover, tonal enough for the ramp to bite.
+function drawCover(key, g, S) {
+  const c = S / 2;
+  g.fillStyle = "#000";
+  g.fillRect(0, 0, S, S);
+  if (key === "deftones") {
+    // Diamond Eyes — white diamond on black
+    g.fillStyle = "#e6e6e6";
+    g.beginPath();
+    g.moveTo(c, c - S * 0.3);
+    g.lineTo(c + S * 0.26, c);
+    g.lineTo(c, c + S * 0.3);
+    g.lineTo(c - S * 0.26, c);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = "#333";
+    g.lineWidth = S * 0.02;
+    g.beginPath();
+    g.moveTo(c - S * 0.26, c);
+    g.lineTo(c + S * 0.26, c);
+    g.moveTo(c - S * 0.13, c - S * 0.15);
+    g.lineTo(c + S * 0.13, c - S * 0.15);
+    g.moveTo(c, c - S * 0.3);
+    g.lineTo(c - S * 0.13, c - S * 0.15);
+    g.moveTo(c, c - S * 0.3);
+    g.lineTo(c + S * 0.13, c - S * 0.15);
+    g.stroke();
+  } else if (key === "acdc") {
+    // Back in Black — bolt, faint gray ground
+    g.fillStyle = "#1c1c1c";
+    g.fillRect(0, 0, S, S);
+    g.fillStyle = "#ececec";
+    g.beginPath();
+    g.moveTo(c - S * 0.02, c - S * 0.36);
+    g.lineTo(c + S * 0.16, c - S * 0.36);
+    g.lineTo(c + S * 0.04, c - S * 0.08);
+    g.lineTo(c + S * 0.2, c - S * 0.08);
+    g.lineTo(c - S * 0.12, c + S * 0.36);
+    g.lineTo(c - S * 0.03, c + S * 0.02);
+    g.lineTo(c - S * 0.19, c + S * 0.02);
+    g.closePath();
+    g.fill();
+  } else if (key === "aphex") {
+    // SAW 85-92 — embossed circular logo
+    const rg = g.createRadialGradient(c, c, S * 0.05, c, c, S * 0.48);
+    rg.addColorStop(0, "#4a4a4a");
+    rg.addColorStop(1, "#101010");
+    g.fillStyle = rg;
+    g.fillRect(0, 0, S, S);
+    g.strokeStyle = "#dcdcdc";
+    g.lineWidth = S * 0.07;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(c - S * 0.24, c + S * 0.22);
+    g.quadraticCurveTo(c - S * 0.3, c - S * 0.24, c, c - S * 0.27);
+    g.quadraticCurveTo(c + S * 0.3, c - S * 0.24, c + S * 0.24, c + S * 0.22);
+    g.stroke();
+    g.lineWidth = S * 0.055;
+    g.beginPath();
+    g.moveTo(c - S * 0.14, c + S * 0.03);
+    g.quadraticCurveTo(c, c - S * 0.12, c + S * 0.14, c + S * 0.03);
+    g.quadraticCurveTo(c + S * 0.04, c + S * 0.14, c - S * 0.04, c + S * 0.05);
+    g.stroke();
+  } else if (key === "acid") {
+    // acid house — bright smiley
+    g.fillStyle = "#161616";
+    g.fillRect(0, 0, S, S);
+    g.fillStyle = "#ececec";
+    g.beginPath();
+    g.arc(c, c, S * 0.38, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#0a0a0a";
+    g.beginPath();
+    g.arc(c - S * 0.13, c - S * 0.11, S * 0.06, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.arc(c + S * 0.13, c - S * 0.11, S * 0.06, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = "#0a0a0a";
+    g.lineWidth = S * 0.06;
+    g.lineCap = "round";
+    g.beginPath();
+    g.arc(c, c + S * 0.03, S * 0.22, Math.PI * 0.15, Math.PI * 0.85);
+    g.stroke();
+  } else if (key === "floyd") {
+    // Dark Side — prism and beams
+    g.strokeStyle = "#efefef";
+    g.lineWidth = S * 0.045;
+    g.beginPath();
+    g.moveTo(c, c - S * 0.28);
+    g.lineTo(c + S * 0.3, c + S * 0.22);
+    g.lineTo(c - S * 0.3, c + S * 0.22);
+    g.closePath();
+    g.stroke();
+    g.lineWidth = S * 0.05;
+    g.beginPath();
+    g.moveTo(0, c + S * 0.06);
+    g.lineTo(c - S * 0.15, c - S * 0.02);
+    g.stroke();
+    [0.6, 0.8, 1].forEach((br, i) => {
+      g.strokeStyle = `rgba(239,239,239,${br})`;
+      g.lineWidth = S * 0.045;
+      g.beginPath();
+      g.moveTo(c + S * 0.11, c + S * 0.02);
+      g.lineTo(S, c - S * 0.16 + i * S * 0.14);
+      g.stroke();
+    });
+  } else {
+    // LCD — disco ball
+    const rg = g.createRadialGradient(c - S * 0.12, c - S * 0.14, S * 0.03, c, c, S * 0.4);
+    rg.addColorStop(0, "#f0f0f0");
+    rg.addColorStop(0.6, "#8a8a8a");
+    rg.addColorStop(1, "#1a1a1a");
+    g.fillStyle = rg;
+    g.beginPath();
+    g.arc(c, c, S * 0.36, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = "#0c0c0c";
+    g.lineWidth = S * 0.014;
+    for (let i = -2; i <= 2; i++) {
+      g.beginPath();
+      g.ellipse(c, c, S * 0.36, S * 0.36, 0, 0, Math.PI * 2);
+      g.moveTo(c - S * 0.36, c + i * S * 0.12);
+      g.lineTo(c + S * 0.36, c + i * S * 0.12);
+      g.stroke();
+      g.beginPath();
+      g.ellipse(c, c, Math.abs(i) === 2 ? S * 0.14 : S * 0.26, S * 0.36, 0, 0, Math.PI * 2);
+      g.stroke();
+    }
   }
 }
 
+function AlbumArtCanvas() {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = TOWER.w * DPR;
+    canvas.height = TOWER.h * DPR;
+    canvas.style.width = TOWER.w + "px";
+    canvas.style.height = TOWER.h + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    const src = document.createElement("canvas");
+    src.width = 192;
+    src.height = 192;
+    const g = src.getContext("2d");
+
+    ALBUMS.forEach((a, k) => {
+      g.clearRect(0, 0, 192, 192);
+      drawCover(a.key, g, 192);
+      asciiCircle(
+        ctx,
+        src,
+        TOWER.discCx,
+        TOWER.discCy0 + k * TOWER.discDy,
+        TOWER.discR,
+        5,
+        "7px ui-monospace, Menlo, monospace"
+      );
+    });
+  }, []);
+
+  return <canvas ref={ref} className="albumArtCanvas" />;
+}
+
+/* ================= CD CHANGER (BeoSound-style wall unit) ================= */
 function TowerSVG({ active, haunt }) {
-  const fins = [];
-  for (let k = 0; k < 43; k++) {
-    const y = 46 + k * 14.6;
-    fins.push(<line key={k} x1="62" y1={y} x2="98" y2={y + 24} />);
-  }
+  const { discCx, discCy0, discDy, discR } = TOWER;
   return (
-    <svg className="towerSvg" viewBox="0 0 300 720">
-      {/* glass panel behind the disc strip, BeoSound-style */}
-      <rect x="88" y="44" width="204" height="656" rx="12" className="glassPanel" />
-      {[[96, 54], [284, 54], [96, 690], [284, 690]].map(([sx, sy]) => (
+    <svg className="towerSvg" viewBox={`0 0 ${TOWER.w} ${TOWER.h}`}>
+      {/* speaker slab outline */}
+      <rect x="18" y="30" width="78" height="620" className="slabEdge" />
+      {/* glass panel + screws */}
+      <rect x="112" y="18" width="160" height="648" rx="10" className="glassPanel" />
+      {[[122, 30], [262, 30], [122, 654], [262, 654]].map(([sx, sy]) => (
         <circle key={sx + "-" + sy} cx={sx} cy={sy} r="2" className="glassScrew" />
       ))}
-      {/* side face + fins */}
-      <polygon points="100,70 60,46 60,666 100,690" className="towerFace" />
-      <g className="towerFins">{fins}</g>
-      {/* top face */}
-      <polygon points="100,70 60,46 230,46 270,70" className="towerFace" />
-      {/* front face */}
-      <rect x="100" y="70" width="170" height="620" className="towerFace" />
-      {/* status LEDs */}
-      <circle cx="110" cy="296" r="2.4" className="ledDot" />
-      <circle cx="110" cy="308" r="2.4" className="ledDot" />
-      {/* discs — tone from the halftoned scene canvas; each is a link */}
+      {/* status LEDs in the gap */}
+      <circle cx="104" cy="330" r="2.4" className="ledDot" />
+      <circle cx="104" cy="342" r="2.4" className="ledDot" />
+      {/* discs — ASCII covers painted by the art canvas; each is a link */}
       {DISCS.map((_, k) => {
-        const cy = 140 + k * 100;
+        const cy = discCy0 + k * discDy;
         const isActive = k === active;
         return (
           <a
@@ -657,29 +787,26 @@ function TowerSVG({ active, haunt }) {
             {...(haunt ? haunt() : {})}
           >
             <g className={isActive ? "towerDisc active" : "towerDisc"}>
-              <circle cx="185" cy={cy} r="44" className="discOuter" />
-              <AlbumMark k={k} cx={185} cy={cy} />
-              <circle cx="185" cy={cy} r="11" className="discHubRing" />
-              <circle cx="185" cy={cy} r="3.2" className="discHubDot" />
+              <circle cx={discCx} cy={cy} r={discR} className="discOuter" />
+              <circle cx={discCx} cy={cy} r="8" className="discHubRing" />
+              <circle cx={discCx} cy={cy} r="2.6" className="discHubDot" />
               {isActive && (
-                <path
-                  d={`M ${185 + 47 * Math.cos(-1.1)},${cy + 47 * Math.sin(-1.1)} A 47,47 0 0 1 ${185 + 47 * Math.cos(-0.2)},${cy + 47 * Math.sin(-0.2)}`}
-                  className="readerArc"
-                />
+                <g className="readerHead">
+                  <rect x="116" y={cy - 5} width="152" height="10" rx="3" className="readerBar" />
+                  <circle cx={discCx} cy={cy} r="13" className="readerClamp" />
+                  <path
+                    d={`M ${discCx + (discR + 3) * Math.cos(-1.05)},${cy + (discR + 3) * Math.sin(-1.05)} A ${discR + 3},${discR + 3} 0 0 1 ${discCx + (discR + 3) * Math.cos(-0.25)},${cy + (discR + 3) * Math.sin(-0.25)}`}
+                    className="readerArc"
+                  />
+                </g>
               )}
-              <text x="240" y={cy + 3} className="discLabel">
+              <text x="258" y={cy + 3} className="discLabel">
                 {String(k + 1).padStart(2, "0")}
               </text>
             </g>
           </a>
         );
       })}
-      {/* feet + vents */}
-      <rect x="112" y="692" width="28" height="10" className="towerFace" />
-      <rect x="230" y="692" width="28" height="10" className="towerFace" />
-      {[0, 1, 2, 3, 4, 5, 6].map((k) => (
-        <line key={k} x1={118 + k * 20} y1="676" x2={128 + k * 20} y2="676" className="towerVent" />
-      ))}
     </svg>
   );
 }
@@ -1187,6 +1314,7 @@ export default function Home() {
           <SceneCanvas />
 
           <div className="towerWrap">
+            <AlbumArtCanvas />
             <TowerSVG active={activeSlot} haunt={haunt} />
           </div>
 
