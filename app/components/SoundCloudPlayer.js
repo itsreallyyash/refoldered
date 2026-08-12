@@ -16,10 +16,8 @@ export default function SoundCloudPlayer({
 }) {
   const iframeRef = useRef(null);
   const widgetRef = useRef(null);
-  const [currentTrack, setCurrentTrack] = useState("");
+  const [currentTrack, setCurrentTrack] = useState("Loading...");
   const [mounted, setMounted] = useState(false);
-  const [trackLoaded, setTrackLoaded] = useState(false);
-  const loadingRef = useRef(false);
 
   // Load SoundCloud Widget API
   useEffect(() => {
@@ -46,14 +44,12 @@ export default function SoundCloudPlayer({
 
     widget.bind(window.SC.Widget.Events.READY, () => {
       console.log("SoundCloud widget ready");
-      setTrackLoaded(false);
       loadRandomTrack();
 
       widget.bind(window.SC.Widget.Events.PLAY, () => {
         setPlaying(true);
-        setTrackLoaded(true);
         widget.getCurrentSound((sound) => {
-          setCurrentTrack(sound?.title || "Playing...");
+          setCurrentTrack(sound?.title || "Now playing");
         });
       });
 
@@ -62,7 +58,7 @@ export default function SoundCloudPlayer({
       });
 
       widget.bind(window.SC.Widget.Events.FINISH, () => {
-        setTrackLoaded(false);
+        // Auto-load next track when current finishes
         loadRandomTrack();
       });
 
@@ -94,15 +90,9 @@ export default function SoundCloudPlayer({
       console.error("Widget not initialized");
       return;
     }
-    if (!trackLoaded) {
-      console.log("Track still loading, please wait...");
-      return;
-    }
     if (playing) {
-      console.log("Pausing");
       widgetRef.current.pause();
     } else {
-      console.log("Playing");
       widgetRef.current.play();
     }
   };
@@ -145,19 +135,17 @@ export default function SoundCloudPlayer({
         )}
         <button
           onClick={handlePlayPause}
-          disabled={!trackLoaded}
           style={{
             padding: "8px 12px",
-            background: !trackLoaded ? "rgba(240, 238, 230, 0.2)" : playing ? "#d43d2a" : "transparent",
+            background: playing ? "#d43d2a" : "transparent",
             color: "#f0eee6",
             border: "1px solid #f0eee6",
-            cursor: trackLoaded ? "pointer" : "not-allowed",
+            cursor: "pointer",
             fontFamily: "IBM Plex Mono",
             fontSize: "11px",
-            opacity: trackLoaded ? 1 : 0.5,
           }}
         >
-          {!trackLoaded ? "LOADING" : playing ? "PAUSE" : "PLAY"}
+          {playing ? "PAUSE" : "PLAY"}
         </button>
       </div>
     </>

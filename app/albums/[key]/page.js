@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { use } from "react";
 
 export default function AlbumPage({ params }) {
-  const { key } = params;
+  const { key } = use(params);
   const titles = {
     deftones: "Deftones — Diamond Eyes",
     acdc: "AC/DC — Back in Black",
