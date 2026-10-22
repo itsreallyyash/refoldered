@@ -66,10 +66,17 @@ body {
   inset: 0;
   overflow: hidden;
   opacity: 0;
+  /* Measured: hiding the subtree makes the gate click cheaper, not
+     dearer. Chrome will not pre-rasterise an opacity-0 layer anyway, so
+     leaving it "visible" bought nothing and cost an extra composited
+     subtree — two full-sheet mix-blend-mode passes among it — for the
+     whole time the gate is up. */
+  visibility: hidden;
   transition: opacity 1.6s ease 0.2s;
 }
 .root.entered .posterViewport {
   opacity: 1;
+  visibility: visible;
 }
 .poster {
   position: absolute;
@@ -641,4 +648,565 @@ svg a.haunt:hover .discOuter {
   stroke: var(--red);
   stroke-width: 3;
   filter: drop-shadow(0 0 4px var(--red-dim));
+}
+
+/* ============================================================
+   /rave — UNKNOWN LOVERZ, side b (open-book build)
+   ============================================================ */
+.cxRoot {
+  position: fixed;
+  inset: 0;
+  background: #050505;
+  overflow: hidden;
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* the desk the book is open on */
+.cxStage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: #070707;
+  cursor: none;
+  transition: opacity 0.9s ease 0.15s;
+}
+/* while the cover is up the book is not merely dim — it is not there */
+.cxRoot.cxClosed .cxStage {
+  opacity: 0;
+  transition: none;
+}
+
+/* the two pages: dark newsprint, lit slightly from the outer edges,
+   falling into shadow toward the spine */
+.cxPage {
+  position: absolute;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.045), transparent 62%),
+    #101010;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.9);
+  transform-origin: center;
+}
+/* the gutter shadow falls inward off the spine */
+.cxPageL {
+  background-image:
+    linear-gradient(to right, rgba(0, 0, 0, 0.55) 0 2px, transparent 2px),
+    linear-gradient(to left, rgba(0, 0, 0, 0.85), transparent 12%);
+}
+.cxPageR {
+  background-image:
+    linear-gradient(to left, rgba(0, 0, 0, 0.55) 0 2px, transparent 2px),
+    linear-gradient(to right, rgba(0, 0, 0, 0.85), transparent 12%);
+}
+.cxSpine {
+  position: absolute;
+  background: linear-gradient(
+    to right,
+    #000 0%,
+    #000 34%,
+    rgba(60, 58, 54, 0.5) 50%,
+    #000 66%,
+    #000 100%
+  );
+}
+
+/* the page turn: light sweeping across the spread from the spine */
+.cxTurnSweep {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    102deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.9) 40%,
+    rgba(239, 236, 226, 0.14) 50%,
+    rgba(0, 0, 0, 0.9) 60%,
+    transparent 100%
+  );
+  background-size: 260% 100%;
+  background-position: 130% 0;
+}
+.cxRoot.cxTurning .cxTurnSweep {
+  animation: cxSweep 0.62s ease-in-out;
+}
+@keyframes cxSweep {
+  0% { opacity: 0; background-position: 130% 0; }
+  14% { opacity: 1; }
+  86% { opacity: 1; }
+  100% { opacity: 0; background-position: -30% 0; }
+}
+.cxRoot.cxTurning .cxStage {
+  animation: cxFlex 0.62s ease-in-out;
+}
+@keyframes cxFlex {
+  0%, 100% { filter: none; }
+  45% { filter: brightness(0.72); }
+}
+
+.cxShake {
+  animation: cxShake 0.22s linear;
+}
+@keyframes cxShake {
+  0% { margin-left: 0; }
+  25% { margin-left: -7px; }
+  50% { margin-left: 6px; }
+  75% { margin-left: -4px; }
+  100% { margin-left: 0; }
+}
+
+/* running heads, set in the page margins */
+.cxHeadL,
+.cxHeadR {
+  position: absolute;
+  top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  color: rgba(239, 236, 226, 0.2);
+  pointer-events: none;
+}
+.cxHeadL { left: 26px; }
+.cxHeadR { right: 26px; }
+
+/* a page ruled up but not yet inked — the reader can see how much
+   book is left without seeing a frame of it */
+.cxGhost {
+  position: absolute;
+  border: 1px solid rgba(239, 236, 226, 0.085);
+  pointer-events: none;
+}
+
+/* plates: unread → seen → active. Unread plates are not painted at
+   all — the story develops one panel at a time as the cursor reaches
+   it, and fourteen hidden layers cost nothing. */
+.cxPanel {
+  position: absolute;
+  background: #000;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.5s ease,
+    transform 0.38s cubic-bezier(0.22, 0.8, 0.3, 1);
+  transform-origin: center;
+}
+/* No CSS filters anywhere on the plates. The art is already monochrome,
+   so grayscale() bought nothing and cost a filter pass and its own
+   composited layer on every one of the thirteen panels behind you. */
+.cxPanel.cxSeen {
+  opacity: 0.26;
+  visibility: visible;
+}
+.cxPanel.cxOn {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-4px) scale(1.045);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.75);
+  z-index: 3;
+}
+/* misregistration: the print slips when the reader fights it */
+.cxPanel.cxMisreg {
+  transform: translate(3px, -2px) !important;
+  transition: none !important;
+}
+
+.cxGlass {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* the comic cursor: moved by transform only, never repainted */
+.cxCursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 9;
+  pointer-events: none;
+  will-change: transform;
+}
+.cxCursor i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+}
+.cxCursorRing {
+  left: -8px;
+  top: -8px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #efece2;
+  transition: border-color 0.2s ease;
+}
+.cxCursor.cxStrain .cxCursorRing { border-color: #c33a28; }
+.cxCursorDot {
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  background: #c33a28;
+}
+/* only on his panel */
+.cxCursorLens {
+  left: -3px;
+  top: -6px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(120, 160, 220, 0.6);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.cxCursor.cxLens .cxCursorLens { opacity: 1; }
+
+/* the way out of the panel, breathing */
+.cxExitEdge {
+  position: absolute;
+  z-index: 7;
+  background: #efece2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+  animation: cxBreathe 2.4s ease-in-out infinite;
+}
+@keyframes cxBreathe {
+  0%, 100% { filter: opacity(0.22); }
+  50% { filter: opacity(0.5); }
+}
+
+/* ---------- the cover ----------
+   Renders on the first frame and depends on nothing. No artwork, no
+   masthead, no synopsis — the whole story used to be legible here
+   before you had read a word of it. */
+.cxCover {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #050505;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  cursor: pointer;
+  animation: cxCoverIn 0.65s ease both;
+}
+@keyframes cxCoverIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cxCoverMark {
+  position: absolute;
+  top: 1.4rem;
+  left: 1.6rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(239, 236, 226, 0.22);
+}
+/* the colour rule, stated once as a logo: his blue and her pink
+   misregistered a hair either side of the ink */
+.cxTitle {
+  position: relative;
+  margin: 0;
+  font-size: clamp(1.7rem, 6.2vw, 4.6rem);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.cxTitle::before,
+.cxTitle::after {
+  content: attr(data-t);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.cxTitle::before {
+  color: #3a60a8;
+  transform: translate(-2.5px, 1.5px);
+  mix-blend-mode: screen;
+}
+.cxTitle::after {
+  color: #c46884;
+  transform: translate(2.5px, -1.5px);
+  mix-blend-mode: screen;
+}
+.cxClock {
+  font-size: clamp(0.55rem, 1.5vw, 0.72rem);
+  letter-spacing: 0.34em;
+  color: rgba(239, 236, 226, 0.35);
+}
+/* the thread being found. no affordance until there is one. */
+.cxWait {
+  margin-top: 1.9rem;
+  font-size: 1.05rem;
+  color: rgba(239, 236, 226, 0.2);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.cxBegin {
+  margin-top: 1.2rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  letter-spacing: 0.42em;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0.4rem 0.2rem;
+  transition: color 0.35s ease;
+}
+.cxBegin:hover { color: var(--red); }
+.cxCaret { animation: cxBlink 1.1s steps(1) infinite; }
+@keyframes cxBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+/* same position the poster takes on the front page */
+.cxNag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.4rem;
+  text-align: center;
+  padding: 0 1.4rem;
+}
+.cxNagShout {
+  font-size: clamp(1.1rem, 5vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--red);
+}
+.cxNagLine {
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  line-height: 1.9;
+  color: rgba(239, 236, 226, 0.45);
+}
+
+/* fourteen dashes; each fills as its plate develops. Nothing waits on it. */
+.cxTicks {
+  display: flex;
+  gap: 4px;
+}
+.cxTicks i {
+  width: 9px;
+  height: 1px;
+  background: rgba(239, 236, 226, 0.13);
+  transition: background 0.5s ease;
+}
+.cxTicks i.cxTickOn { background: rgba(239, 236, 226, 0.5); }
+.cxFine {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 1.6rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  color: rgba(239, 236, 226, 0.28);
+}
+/* the footer and the way home share one line on a phone; stack them */
+@media (max-width: 640px) {
+  .cxFine {
+    left: 0;
+    right: 0;
+    bottom: 3.4rem;
+    text-align: center;
+  }
+}
+.cxCrackMark {
+  position: absolute;
+  top: 1.1rem;
+  right: 1.6rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 20px;
+  color: rgba(239, 236, 226, 0.16);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.cxCrackMark:hover {
+  color: var(--red);
+}
+
+/* ---------- the kiss ----------
+   It does not stay in its panel. The book leaves the screen and it
+   holds you here, alone with it, until it is finished. */
+.cxKiss {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #000;
+  cursor: default;
+  animation: cxKissIn 0.5s ease both;
+}
+@keyframes cxKissIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* one static bitmap, pushed in by the compositor */
+.cxKissFrame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  animation: cxKissPush 4.5s cubic-bezier(0.3, 0, 0.5, 1) both;
+  will-change: transform;
+}
+@keyframes cxKissPush {
+  from { transform: translate(-50%, -50%) scale(1); }
+  to { transform: translate(-50%, -50%) scale(1.05); }
+}
+.cxKissCanvas { display: block; }
+.cxKissBlue,
+.cxKissPink {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 52%;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  opacity: 0;
+  animation: cxKissBloom 1.6s ease 0.35s forwards;
+}
+.cxKissBlue {
+  left: 0;
+  background: linear-gradient(to right, rgba(58, 96, 168, 0.5), transparent);
+}
+.cxKissPink {
+  right: 0;
+  background: linear-gradient(to left, rgba(196, 104, 132, 0.48), transparent);
+}
+@keyframes cxKissBloom {
+  to { opacity: 1; }
+}
+/* one white frame at contact, then never again */
+.cxKissFlash {
+  position: absolute;
+  inset: 0;
+  background: #efece2;
+  pointer-events: none;
+  animation: cxKissFlash 0.22s ease-out both;
+}
+@keyframes cxKissFlash {
+  from { opacity: 0.92; }
+  to { opacity: 0; }
+}
+.cxKissOut {
+  position: absolute;
+  right: 2.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 1.1rem;
+  color: rgba(239, 236, 226, 0.28);
+  cursor: pointer;
+  padding: 0.6rem 0.9rem;
+  animation: cxKissOutIn 1.2s ease both;
+  transition: color 0.4s ease;
+}
+.cxKissOut:hover { color: var(--ink); }
+@keyframes cxKissOutIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* hud */
+.cxHud {
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  pointer-events: none;
+}
+.cxNow {
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+}
+.cxRegrip {
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  color: var(--red);
+  text-transform: uppercase;
+}
+
+/* pier */
+.cxPier {
+  position: fixed;
+  inset: 0;
+  background: #000;
+}
+.cxPierCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.cxSideA {
+  position: fixed;
+  left: 50%;
+  bottom: 1.6rem;
+  transform: translateX(-50%);
+  background: none;
+  border: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.3em;
+  color: rgba(239, 236, 226, 0.22);
+  cursor: pointer;
+  transition: color 0.4s ease;
+}
+.cxSideA:hover {
+  color: var(--red);
+}
+.cxHome {
+  position: fixed;
+  right: 2rem;
+  bottom: 1.5rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  color: var(--ink-mid);
+  border-bottom-color: transparent;
+}
+.cxHome:hover { color: var(--red); }
+
+/* the moment it breaks, the whole book dies at once */
+.cxStage.cxShattered .cxPanel {
+  opacity: 0.08 !important;
+  visibility: visible !important;
+  filter: grayscale(1) brightness(0.45) !important;
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+.cxStage.cxShattered .cxPage,
+.cxStage.cxShattered .cxSpine {
+  filter: brightness(0.3);
+  transition: filter 0.5s ease;
+}
+/* Moon River plays from here; the pier stays a drawing */
+.cxYtMount {
+  position: fixed;
+  width: 2px;
+  height: 2px;
+  bottom: 0;
+  left: 0;
+  opacity: 0.01;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cxYtMount iframe {
+  width: 2px;
+  height: 2px;
 }

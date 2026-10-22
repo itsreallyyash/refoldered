@@ -40,7 +40,7 @@ const TOWER = {
 };
 
 const ALBUMS = [
-  { key: "deftones", url: "/albums/deftones" },
+  { key: "deftones", url: "/rave" }, // disc 01 opens SIDE B, the comic
   { key: "acdc", url: "/albums/acdc" },
   { key: "aphex", url: "/albums/aphex" },
   { key: "acid", url: "/albums/acid" },
@@ -153,6 +153,25 @@ const RING_TEXT = "REFOLDERED · REFOLDERED · ";
    Every click winds the spin faster; after 12 clicks the strobing blur
    collapses into a slowly turning ASCII globe with red site markers and
    "refoldered" orbiting it in mono. */
+/* The three poster-sized canvases carry procedural halftone, paper
+   grain and powder — noise, not type. Backing them at full retina
+   density made them 3200x2000 apiece: nineteen of the twenty-five
+   million canvas pixels on the page, all of which have to be rastered
+   the moment the gate lifts. Grain does not get better at 2x. */
+const TEXTURE_DPR = () => Math.min(1.25, window.devicePixelRatio || 1);
+const CARD_DPR = () => Math.min(1.5, window.devicePixelRatio || 1);
+
+/* Everything on the poster is mounted and drawn behind the gate, but
+   nothing animates there. Four canvas loops running at screen rate
+   against a black overlay nobody is looking at is bad enough on its
+   own; worse, the two film passes on top are mix-blend-mode layers, so
+   every canvas write underneath forces the compositor to read back and
+   re-blend the whole 1600x1000 sheet at device resolution. Each loop
+   paints its first frame — so the poster is complete the instant the
+   gate lifts — and then idles until the reader is actually there. */
+let POSTER_LIVE = false;
+const posterLive = () => POSTER_LIVE;
+
 function PillCanvas() {
   const canvasRef = useRef(null);
   const spinRef = useRef({ mode: "coin", clicks: 0, speed: 1, rot: 0, vel: 0, flash: 0 });
@@ -489,8 +508,12 @@ function PillCanvas() {
       }
     }
 
+    let drewOnce = false;
     function frame(ts) {
       raf = requestAnimationFrame(frame);
+      // one frame to build the picture, then idle until the gate opens
+      if (document.hidden || (!posterLive() && drewOnce)) return;
+      drewOnce = true;
       const st = spinRef.current;
 
       if (st.mode === "globe") {
@@ -772,7 +795,7 @@ function GroundCanvas() {
     if (!canvas) return;
     const W = 1600;
     const H = 1000;
-    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const DPR = TEXTURE_DPR();
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = W + "px";
@@ -1099,7 +1122,7 @@ function SceneCanvas() {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const DPR = TEXTURE_DPR();
     const W = 1600;
     const H = 1000;
     canvas.width = W * DPR;
@@ -1478,8 +1501,12 @@ function AlbumArtCanvas({ spin }) {
       });
     }
 
+    let drewOnce = false;
     function frame(ts) {
       raf = requestAnimationFrame(frame);
+      // one frame to build the picture, then idle until the gate opens
+      if (document.hidden || (!posterLive() && drewOnce)) return;
+      drewOnce = true;
       const dt = last ? Math.min(80, ts - last) : 16;
       last = ts;
       // whichever disc is engaged keeps turning, like a loaded platter
@@ -1519,8 +1546,6 @@ function TowerSVG({ active, haunt, onHover }) {
           <a
             key={k}
             href={ALBUMS[k].url}
-            target="_blank"
-            rel="noopener noreferrer"
             {...h}
             onMouseEnter={(e) => {
               h.onMouseEnter?.(e);
@@ -1764,8 +1789,12 @@ function ScopeScreen({ analyserRef, playing, power, onMeasure }) {
     // loud ones don't clip
     let agcPeak = 0.3;
 
+    let drewOnce = false;
     function frame(now) {
       raf = requestAnimationFrame(frame);
+      // one frame to build the picture, then idle until the gate opens
+      if (document.hidden || (!posterLive() && drewOnce)) return;
+      drewOnce = true;
       const an = analyserRef.current;
       const pw = powerRef.current;
       const live = !!(playingRef.current && an && pw);
@@ -2305,7 +2334,7 @@ function PillsBreak() {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const DPR = CARD_DPR();
     const W = 1600; // the whole poster is the working surface
     const H = 1000;
     canvas.width = W * DPR;
@@ -2720,8 +2749,14 @@ function PillsBreak() {
 
     let raf;
     let last = 0;
+    let drewOnce = false;
+    let firstPaint = true;
+    let lastRot = 0;
     const frame = (ts) => {
       raf = requestAnimationFrame(frame);
+      // one frame to build the picture, then idle until the gate opens
+      if (document.hidden || (!posterLive() && drewOnce)) return;
+      drewOnce = true;
       const dt = last ? Math.min(60, ts - last) : 16;
       last = ts;
 
@@ -2814,6 +2849,19 @@ function PillsBreak() {
       const elen2 = ex * ex + ey * ey;
       const bladeSpeed = Math.hypot(bvx, bvy);
 
+      /* The powder sheet is 1600x1000 at device scale — clearing and
+         re-uploading it is six and a half million pixels a frame. Almost
+         all of the time nothing on it is moving: the card is parked and
+         every grain has skidded to a stop. So work out whether anything
+         actually moved and, if not, leave the last frame standing. */
+      let moving =
+        dirty ||
+        Math.abs(bvx) > 0.05 ||
+        Math.abs(bvy) > 0.05 ||
+        Math.abs(rot - lastRot) > 0.0006 ||
+        (dropped && dropT < 1);
+      lastRot = rot;
+
       const step = dt / 16.7;
       // once the card is down, the powder sorts itself into three lines
       // over a slow ten seconds
@@ -2825,9 +2873,11 @@ function PillsBreak() {
         if (dropped && p.sx !== undefined) {
           p.x = p.sx + (p.tx - p.sx) * segE;
           p.y = p.sy + (p.ty - p.sy) * segE;
+          if (segE < 1) moving = true;
           continue;
         }
         if (p.settle > 0) {
+          moving = true;
           // racking itself into a line
           p.settle = Math.max(0, p.settle - dt / 520);
           const k = ease(1 - p.settle);
@@ -2856,6 +2906,7 @@ function PillsBreak() {
         p.vy *= damp;
         if (Math.abs(p.vx) < 0.01) p.vx = 0;
         if (Math.abs(p.vy) < 0.01) p.vy = 0;
+        if (p.vx || p.vy) moving = true;
         // stay on the sheet
         if (p.x < 4) (p.x = 4), (p.vx = -p.vx * 0.25);
         if (p.x > W - 4) (p.x = W - 4), (p.vx = -p.vx * 0.25);
@@ -2864,6 +2915,8 @@ function PillsBreak() {
       }
 
       /* draw */
+      if (!moving && !firstPaint) return;
+      firstPaint = false;
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(layer, PILE.x, PILE.y, PILE.w, PILE.h);
       // grains bucketed by brightness so the whole field is a few paths
@@ -2899,7 +2952,12 @@ function PillsBreak() {
 
 /* ================= PAGE ================= */
 export default function Home() {
-  const [entered, setEntered] = useState(false);
+  /* `entered` is a ref, not state, on purpose. It only ever adds one
+     class to the root, but as state it re-rendered the entire poster —
+     ten canvases and two several-hundred-node SVGs reconciled inside
+     the click handler, which is most of why the gate felt like a hang. */
+  const rootRef = useRef(null);
+  const enteredRef = useRef(false);
   // the engaged disc: 01 to start, and hovering another moves the reader
   // head to it for good — it keeps playing after the cursor leaves
   const [activeSlot, setActiveSlot] = useState(0);
@@ -2946,8 +3004,10 @@ export default function Home() {
   }, []);
 
   function enter() {
-    if (entered) return;
-    setEntered(true);
+    if (enteredRef.current) return;
+    enteredRef.current = true;
+    POSTER_LIVE = true; // the loops were idling; wake them
+    rootRef.current?.classList.add("entered");
     // the gate click is the user gesture — start the audio graph on it
     audioCtlRef.current?.start();
   }
@@ -2972,7 +3032,7 @@ export default function Home() {
     : "AWAITING SIGNAL";
 
   return (
-    <div className={`root${entered ? " entered" : ""}`}>
+    <div ref={rootRef} className="root">
       <div className="gate" onClick={enter}>
         <div className="gateGlyph">&#9678;</div>
         <div className="gateText">click to enter</div>
