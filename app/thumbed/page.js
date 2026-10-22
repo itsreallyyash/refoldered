@@ -349,62 +349,179 @@ function drawThumb(c, x, y, seed, ink, scale = 1) {
 }
 
 /* ============================================================
-   THE BEAT — a psytrance engine seeded by the tab
-   kick · rolling bass · hats · an acid line with its own pattern ·
-   a riser · a wall that opens. Thirty-two bars. Nothing sampled.
+   THE BEAT — a composer, not a song.
+   Nothing here is sampled. Every sound is an oscillator or a noise
+   buffer, built when it is needed and thrown away after. What makes
+   one tab's beat unlike another's is that the tab deals everything:
+   the tempo and whether it jumps, the shape of the night — how long
+   the build, whether the drop is teased and taken away, whether the
+   floor goes to half time, whether there is a third drop faster than
+   the second — the kick's pitch and decay, the bass's rhythm and
+   wave, the hat pattern, the clap, which leads are in the room and
+   what each of them plays, the key changes, the transitions, the
+   fills, the delay, the size of the room, the drive, the pump.
    ============================================================ */
 const SCALES = {
   phrygian: [0, 1, 3, 5, 7, 8, 10],
   minor: [0, 2, 3, 5, 7, 8, 10],
   dorian: [0, 2, 3, 5, 7, 9, 10],
+  harmonic: [0, 2, 3, 5, 7, 8, 11],
 };
+const MIDI = (m) => 440 * Math.pow(2, (m - 69) / 12);
+const pickOf = (r, list) => list[Math.floor(r() * list.length)];
+
+/* sixteen-step masks: which steps of a bar a thing is hit on */
+const BASS_PATTERNS = {
+  rolling: [0, 1, 1, 1],
+  gallop: [0, 0, 1, 1],
+  offbeat: [0, 0, 1, 0],
+  swung: [0, 1, 0, 1],
+  walking: [0, 1, 1, 1],
+};
+const HAT_PATTERNS = {
+  off8: (s) => s % 4 === 2,
+  sixteen: (s) => s % 4 !== 0,
+  shuffle: (s) => s % 4 === 2 || s % 8 === 5,
+  off16: (s) => s % 2 === 1,
+};
+
+/* ---------- the plan: the shape of the night ---------- */
+function composePlan(r) {
+  const style = pickOf(r, ["progressive", "fullon", "dark"]);
+  const bpm =
+    style === "progressive" ? 134 + Math.floor(r() * 6) : style === "fullon" ? 140 + Math.floor(r() * 8) : 146 + Math.floor(r() * 10);
+  const secs = [];
+  const push = (kind, bars, extra = {}) => secs.push({ kind, bars, ...extra });
+  push("intro", 4 + 4 * Math.floor(r() * 3));
+  push("build", 8 + 4 * Math.floor(r() * 3));
+  if (r() < 0.35) {
+    push("tease", 4); // four bars of the drop, then taken away
+    push("breakdown", 4);
+  }
+  push("breath", r() < 0.5 ? 1 : 2);
+  push("drop", 16 + 8 * Math.floor(r() * 3), { n: 1 });
+  push("breakdown", 8 + 4 * Math.floor(r() * 3));
+  if (r() < 0.3) push("halftime", 8);
+  push("riser", 2);
+  push("drop", 16 + 8 * Math.floor(r() * 3), { n: 2, bpmShift: r() < 0.5 ? 0 : 2 + Math.floor(r() * 5) });
+  if (r() < 0.3) {
+    push("breath", 1);
+    push("drop", 8 + 8 * Math.floor(r() * 2), { n: 3, bpmShift: 4 + Math.floor(r() * 7) });
+  }
+  push("outro", 6 + 2 * Math.floor(r() * 3));
+  let bar = 0;
+  secs.forEach((s) => {
+    s.start = bar;
+    bar += s.bars;
+    s.bpm = bpm + (s.bpmShift || 0);
+    s.energy = s.kind === "drop" ? (s.n >= 2 ? 3 : 2) : s.kind === "tease" ? 2 : s.kind === "build" || s.kind === "riser" || s.kind === "halftime" ? 1 : 0;
+  });
+  return { style, bpm, secs, bars: bar };
+}
+
+/* ---------- the kit: what is in the room ---------- */
+function composeKit(r, style) {
+  const rootMidi = 28 + Math.floor(r() * 8); // E1..B1
+  const scaleName = pickOf(r, Object.keys(SCALES));
+  const leadKinds = ["acid", "stab", "pluck", "zap"];
+  const nLeads = 1 + Math.floor(r() * 3);
+  const leads = [];
+  const bag = leadKinds.slice();
+  for (let i = 0; i < nLeads; i++) {
+    // the first voice carries the breakdown, so it is never the zap
+    const bagNow = i === 0 ? bag.filter((k) => k !== "zap") : bag;
+    const kind = bagNow[Math.floor(r() * bagNow.length)];
+    bag.splice(bag.indexOf(kind), 1);
+    const len = r() < 0.5 ? 16 : 32;
+    const scale = SCALES[scaleName];
+    const density = kind === "zap" ? 0.07 : kind === "stab" ? 0.22 : kind === "pluck" ? 0.6 : 0.6;
+    const pattern = [];
+    for (let s = 0; s < len; s++) {
+      const on = r() < (s % 4 === 0 ? density + 0.25 : density);
+      const deg = Math.floor(r() * scale.length);
+      const oct = r() < 0.22 ? 12 : 0;
+      pattern.push({ on, note: rootMidi + 12 + scale[deg] + oct + (kind === "pluck" ? 12 : 0), acc: r() < 0.3, slide: r() < 0.25 });
+    }
+    leads.push({
+      kind, len, pattern,
+      wave: pickOf(r, ["sawtooth", "square"]),
+      q: 6 + r() * 10,
+      base: 160 + r() * 320,
+      env: 1200 + r() * 3000,
+      ratio: pickOf(r, [1, 2, 3]), // the pluck's modulator
+      chord: pickOf(r, [[0, 7, 12], [0, 3, 7], [0, 5, 12], [0, 7, 10]]),
+      detune: 4 + r() * 12,
+      octaveUp: r() < 0.5, // in the later drops
+    });
+  }
+  return {
+    rootMidi, scaleName,
+    kick: { f0: 120 + r() * 90, f1: 38 + r() * 14, decay: 0.22 + r() * 0.2, click: r() * 0.5, wave: r() < 0.8 ? "sine" : "triangle" },
+    bass: {
+      wave: pickOf(r, ["sawtooth", "square"]), pattern: pickOf(r, Object.keys(BASS_PATTERNS)),
+      cut: 220 + r() * 500, q: 1.5 + r() * 3, decay: 0.08 + r() * 0.08,
+      fifth: r() < 0.35, octave: r() < 0.25,
+    },
+    hats: { pattern: pickOf(r, Object.keys(HAT_PATTERNS)), tone: 6500 + r() * 3000, open: Math.floor(r() * 4), shaker: r() < 0.5 },
+    perc: { snare: pickOf(r, ["clap", "snare", "rim", "none"]), toms: r() < 0.5 },
+    leads,
+    pad: r() < 0.75,
+    fx: {
+      delayDiv: pickOf(r, [2, 3, 4, 6]), fb: 0.25 + r() * 0.3, verbSec: 1.2 + r() * 2.5,
+      drive: r() < 0.5 ? 0.3 + r() * 0.6 : 0, pump: r() < 0.8,
+    },
+    riser: pickOf(r, ["noise", "pitch", "roll", "reverse"]),
+    fill: pickOf(r, ["roll", "stutter", "mute", "silence", "toms", "none"]),
+    keyChange: r() < 0.5 ? pickOf(r, [5, 7, -2, 3]) : 0,
+    style,
+  };
+}
 
 function makeTrip(seed) {
   const r = rng(seed);
-  const bpm = 138 + Math.floor(r() * 11);
-  const rootMidi = 28 + Math.floor(r() * 8); // E1..B1
-  const scaleName = ["phrygian", "minor", "dorian"][Math.floor(r() * 3)];
-  const scale = SCALES[scaleName];
-  const acidWave = r() > 0.5 ? "sawtooth" : "square";
-  const bassCut = 260 + r() * 420;
-  const acidQ = 7 + r() * 8;
-  const acidBase = 180 + r() * 300;
-  const acidEnv = 1400 + r() * 2600;
-  const delayDiv = r() > 0.5 ? 3 : 6; // 3/16 or dotted 8th
-  // the acid pattern: sixteen steps of note / rest / accent / slide
-  const pattern = [];
-  for (let i = 0; i < 16; i++) {
-    const on = r() < (i % 4 === 0 ? 0.85 : 0.55);
-    const deg = Math.floor(r() * scale.length);
-    const oct = r() < 0.22 ? 12 : 0;
-    pattern.push({ on, note: rootMidi + 12 + scale[deg] + oct, acc: r() < 0.3, slide: r() < 0.25 });
-  }
-  const hatOpen = Math.floor(r() * 4); // which bar-of-four has the open hat
+  const plan = composePlan(r);
+  const kit = composeKit(r, plan.style);
   const family = Math.floor(r() * 5);
+  const family2 = (family + 1 + Math.floor(r() * 4)) % 5;
   const visualSeed = Math.floor(r() * 1e9);
 
-  const beat = 60 / bpm;
-  const step = beat / 4;
-  const BARS = 96;
-  const totalSec = BARS * 4 * beat;
-
-  /* the shape of the night, by bar:
-     0–7 behind the wall · 8 bass · 16 acid · 31 a held breath and a
-     riser · 32–55 the first drop · 56–63 the floor drops out, the acid
-     alone in the delay · 64–87 the second drop, hats doubled, the acid
-     an octave up, the lights strobing · 88–95 the wall closes */
-  const energyAt = (bar) => (bar >= 64 && bar < 88 ? 3 : bar >= 32 && bar < 56 ? 2 : bar >= 16 && bar < 31 ? 1 : 0);
-  // eighth-note strobing, in bursts, in the second drop
-  const strobeAt = (bar) => bar >= 64 && bar < 88 && ((bar - 64) % 8 === 6 || (bar - 64) % 8 === 7);
-
-  const state = {
-    bpm, bars: BARS, totalSec, family, visualSeed, scaleName, energyAt, strobeAt, step,
-    ctx: null, startAt: 0, kicks: [], bar: 0, running: false, ended: false,
+  /* the clock of the night: every bar's start and step length, so the
+     tempo can move between sections and the visuals can still find
+     the eighth they are on */
+  const barStart = [];
+  const barStep = [];
+  let acc = 0;
+  plan.secs.forEach((s) => {
+    const step = 60 / s.bpm / 4;
+    for (let b = 0; b < s.bars; b++) {
+      barStart.push(acc);
+      barStep.push(step);
+      acc += step * 16;
+    }
+  });
+  const totalSec = acc;
+  const sectionAt = (bar) => plan.secs.find((s) => bar >= s.start && bar < s.start + s.bars) || plan.secs[plan.secs.length - 1];
+  const energyAt = (bar) => sectionAt(bar).energy;
+  const switchBar = (plan.secs.find((s) => s.kind === "drop" && s.n === 2) || { start: 0 }).start;
+  /* strobe bursts: the last bar of every eight in the first drop, the
+     last two of every eight in the later ones, and sixteenths through
+     the final four bars of a later drop */
+  const strobeAt = (bar) => {
+    const s = sectionAt(bar);
+    if (s.kind !== "drop") return 0;
+    const i = bar - s.start;
+    const left = s.bars - i;
+    if (s.n >= 2 && left <= 4) return 2; // sixteenths
+    if (s.n >= 2 && i % 8 >= 6) return 1;
+    if (s.n === 1 && i % 8 === 7) return 1;
+    return 0;
   };
 
-  function midiHz(m) {
-    return 440 * Math.pow(2, (m - 69) / 12);
-  }
+  const state = {
+    bpm: plan.bpm, style: plan.style, bars: plan.bars, totalSec, family, family2, visualSeed, switchBar,
+    secs: plan.secs, barStart, barStep, sectionAt, energyAt, strobeAt, kit,
+    ctx: null, startAt: 0, kicks: [], claps: [], bar: 0, running: false, ended: false, master: null,
+  };
 
   function noiseBuffer(ctx, sec) {
     const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * sec), ctx.sampleRate);
@@ -419,27 +536,46 @@ function makeTrip(seed) {
     const ctx = new Ctx();
     state.ctx = ctx;
     state.running = true;
+    if (typeof window !== "undefined") window.__thTrip = api;
 
-    /* master: the wall it all comes through, then glue */
+    /* master: the wall it all comes through, the drive, then glue */
     const wall = ctx.createBiquadFilter();
     wall.type = "lowpass";
     wall.frequency.value = 380;
+    let into = wall;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.ratio.value = 4;
     comp.attack.value = 0.004;
     comp.release.value = 0.18;
+    if (kit.fx.drive > 0) {
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      const k = kit.fx.drive * 6;
+      for (let i = 0; i < 1024; i++) {
+        const x = (i / 512) - 1;
+        curve[i] = Math.tanh(x * (1 + k)) / Math.tanh(1 + k);
+      }
+      shaper.curve = curve;
+      wall.connect(shaper);
+      shaper.connect(comp);
+    } else wall.connect(comp);
     const master = ctx.createGain();
-    master.gain.value = 0.72;
-    wall.connect(comp);
+    master.gain.value = 0.7;
     comp.connect(master);
     master.connect(ctx.destination);
     state.master = master;
 
-    /* the room: a short procedural tail for the acid and the riser */
+    /* the pump: the bass and the leads duck under every kick */
+    const pump = ctx.createGain();
+    pump.gain.value = 1;
+    pump.connect(wall);
+    const voiceBus = kit.fx.pump ? pump : wall;
+
+    /* the room */
     const verb = ctx.createConvolver();
     {
-      const sec = 1.9;
+      const sec = kit.fx.verbSec;
       const buf = ctx.createBuffer(2, Math.floor(ctx.sampleRate * sec), ctx.sampleRate);
       for (let ch = 0; ch < 2; ch++) {
         const d = buf.getChannelData(ch);
@@ -448,15 +584,14 @@ function makeTrip(seed) {
       verb.buffer = buf;
     }
     const verbGain = ctx.createGain();
-    verbGain.gain.value = 0.22;
+    verbGain.gain.value = 0.2;
     verb.connect(verbGain);
     verbGain.connect(wall);
 
-    /* the acid's delay: a feedback loop at a division of the beat */
-    const delay = ctx.createDelay(1.0);
-    delay.delayTime.value = step * delayDiv;
+    /* the delay, at a division of the beat; it follows the tempo */
+    const delay = ctx.createDelay(1.5);
     const fb = ctx.createGain();
-    fb.gain.value = 0.34;
+    fb.gain.value = kit.fx.fb;
     const dlHp = ctx.createBiquadFilter();
     dlHp.type = "highpass";
     dlHp.frequency.value = 500;
@@ -471,65 +606,73 @@ function makeTrip(seed) {
 
     const noise = noiseBuffer(ctx, 1.5);
 
-    const kick = (t) => {
+    /* ---------- the drums ---------- */
+    const kick = (t, soft) => {
       const o = ctx.createOscillator();
-      o.type = "sine";
-      o.frequency.setValueAtTime(165, t);
-      o.frequency.exponentialRampToValueAtTime(46, t + 0.075);
+      o.type = kit.kick.wave;
+      o.frequency.setValueAtTime(kit.kick.f0, t);
+      o.frequency.exponentialRampToValueAtTime(kit.kick.f1, t + 0.075);
       const g = ctx.createGain();
-      g.gain.setValueAtTime(1.0, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.34);
+      g.gain.setValueAtTime(soft ? 0.6 : 1.0, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + kit.kick.decay);
       o.connect(g);
       g.connect(wall);
       o.start(t);
-      o.stop(t + 0.36);
-      // the click on the front of it
-      const n = ctx.createBufferSource();
-      n.buffer = noise;
-      const hp = ctx.createBiquadFilter();
-      hp.type = "highpass";
-      hp.frequency.value = 2500;
-      const ng = ctx.createGain();
-      ng.gain.setValueAtTime(0.35, t);
-      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.012);
-      n.connect(hp);
-      hp.connect(ng);
-      ng.connect(wall);
-      n.start(t);
-      n.stop(t + 0.02);
+      o.stop(t + kit.kick.decay + 0.02);
+      if (kit.kick.click > 0.05) {
+        const n = ctx.createBufferSource();
+        n.buffer = noise;
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 2500;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(kit.kick.click * 0.7, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.012);
+        n.connect(hp);
+        hp.connect(ng);
+        ng.connect(wall);
+        n.start(t);
+        n.stop(t + 0.02);
+      }
+      if (kit.fx.pump) {
+        pump.gain.cancelScheduledValues(t);
+        pump.gain.setValueAtTime(0.3, t);
+        pump.gain.linearRampToValueAtTime(1, t + 0.22);
+      }
       state.kicks.push(t);
       if (state.kicks.length > 16) state.kicks.shift();
     };
 
-    const bass = (t) => {
+    const bass = (t, note, decayMul = 1) => {
       const o = ctx.createOscillator();
-      o.type = "sawtooth";
-      o.frequency.value = midiHz(rootMidi);
+      o.type = kit.bass.wave;
+      o.frequency.value = MIDI(note);
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.setValueAtTime(bassCut * 1.6, t);
-      lp.frequency.exponentialRampToValueAtTime(bassCut * 0.55, t + 0.1);
-      lp.Q.value = 2.2;
+      lp.frequency.setValueAtTime(kit.bass.cut * 1.6, t);
+      lp.frequency.exponentialRampToValueAtTime(kit.bass.cut * 0.55, t + 0.1);
+      lp.Q.value = kit.bass.q;
       const g = ctx.createGain();
+      const dec = kit.bass.decay * decayMul;
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(0.5, t + 0.003);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.115);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
       o.connect(lp);
       lp.connect(g);
-      g.connect(wall);
+      g.connect(voiceBus);
       o.start(t);
-      o.stop(t + 0.13);
+      o.stop(t + dec + 0.02);
     };
 
-    const hat = (t, open) => {
+    const hat = (t, open, soft) => {
       const n = ctx.createBufferSource();
       n.buffer = noise;
       const hp = ctx.createBiquadFilter();
       hp.type = "highpass";
-      hp.frequency.value = open ? 6000 : 7800;
+      hp.frequency.value = open ? kit.hats.tone - 1500 : kit.hats.tone;
       const g = ctx.createGain();
       const len = open ? 0.19 : 0.035;
-      g.gain.setValueAtTime(open ? 0.16 : 0.11, t);
+      g.gain.setValueAtTime((open ? 0.16 : 0.11) * (soft ? 0.5 : 1), t);
       g.gain.exponentialRampToValueAtTime(0.001, t + len);
       n.connect(hp);
       hp.connect(g);
@@ -538,137 +681,416 @@ function makeTrip(seed) {
       n.stop(t + len + 0.01);
     };
 
-    // a clap on two and four in the drops: three noise bursts a few
-    // milliseconds apart, through a bandpass, into the room
-    const clap = (t) => {
-      for (let k = 0; k < 3; k++) {
+    const shaker = (t) => {
+      const n = ctx.createBufferSource();
+      n.buffer = noise;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 4200;
+      bp.Q.value = 2;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      n.connect(bp);
+      bp.connect(g);
+      g.connect(wall);
+      n.start(t);
+      n.stop(t + 0.06);
+    };
+
+    // the backbeat: a clap, a snare, or a rim, as dealt
+    const snare = (t, kind = kit.perc.snare, loud = 1) => {
+      if (kind === "none") return;
+      if (kind === "clap") {
+        for (let k = 0; k < 3; k++) {
+          const n = ctx.createBufferSource();
+          n.buffer = noise;
+          const bp = ctx.createBiquadFilter();
+          bp.type = "bandpass";
+          bp.frequency.value = 1500;
+          bp.Q.value = 0.9;
+          const g = ctx.createGain();
+          const t1 = t + k * 0.011;
+          g.gain.setValueAtTime((k === 2 ? 0.3 : 0.14) * loud, t1);
+          g.gain.exponentialRampToValueAtTime(0.001, t1 + (k === 2 ? 0.16 : 0.03));
+          n.connect(bp);
+          bp.connect(g);
+          g.connect(wall);
+          if (k === 2) g.connect(verb);
+          n.start(t1);
+          n.stop(t1 + 0.2);
+        }
+      } else if (kind === "snare") {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.setValueAtTime(220, t);
+        o.frequency.exponentialRampToValueAtTime(140, t + 0.06);
+        const og = ctx.createGain();
+        og.gain.setValueAtTime(0.35 * loud, t);
+        og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+        o.connect(og);
+        og.connect(wall);
+        o.start(t);
+        o.stop(t + 0.12);
+        const n = ctx.createBufferSource();
+        n.buffer = noise;
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 1800;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.3 * loud, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        n.connect(hp);
+        hp.connect(g);
+        g.connect(wall);
+        g.connect(verb);
+        n.start(t);
+        n.stop(t + 0.2);
+      } else {
+        // rim: a tick through a tight bandpass
         const n = ctx.createBufferSource();
         n.buffer = noise;
         const bp = ctx.createBiquadFilter();
         bp.type = "bandpass";
-        bp.frequency.value = 1500;
-        bp.Q.value = 0.9;
+        bp.frequency.value = 3200;
+        bp.Q.value = 12;
         const g = ctx.createGain();
-        const t1 = t + k * 0.011;
-        g.gain.setValueAtTime(k === 2 ? 0.3 : 0.14, t1);
-        g.gain.exponentialRampToValueAtTime(0.001, t1 + (k === 2 ? 0.16 : 0.03));
+        g.gain.setValueAtTime(0.5 * loud, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
         n.connect(bp);
         bp.connect(g);
         g.connect(wall);
-        if (k === 2) g.connect(verb);
-        n.start(t1);
-        n.stop(t1 + 0.2);
+        n.start(t);
+        n.stop(t + 0.05);
       }
+      state.claps.push(t);
+      if (state.claps.length > 8) state.claps.shift();
     };
 
-    let acidPrevHz = null;
-    const acid = (t, p, sweep, up) => {
+    const tom = (t, hz) => {
       const o = ctx.createOscillator();
-      o.type = acidWave;
-      const hz = midiHz(p.note + (up ? 12 : 0));
-      if (p.slide && acidPrevHz) {
-        o.frequency.setValueAtTime(acidPrevHz, t);
+      o.type = "sine";
+      o.frequency.setValueAtTime(hz, t);
+      o.frequency.exponentialRampToValueAtTime(hz * 0.55, t + 0.18);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(g);
+      g.connect(wall);
+      g.connect(verb);
+      o.start(t);
+      o.stop(t + 0.25);
+    };
+
+    /* ---------- the leads ---------- */
+    const prevHz = {};
+    const acid = (t, L, p, sweep, up, step) => {
+      const o = ctx.createOscillator();
+      o.type = L.wave;
+      const hz = MIDI(p.note + (up ? 12 : 0));
+      if (p.slide && prevHz[L.kind]) {
+        o.frequency.setValueAtTime(prevHz[L.kind], t);
         o.frequency.exponentialRampToValueAtTime(hz, t + step * 0.8);
       } else o.frequency.value = hz;
-      acidPrevHz = hz;
+      prevHz[L.kind] = hz;
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.Q.value = acidQ;
-      const peak = acidBase + acidEnv * (p.acc ? 1 : 0.55) * (0.35 + sweep * 0.65);
+      lp.Q.value = L.q;
+      const peak = L.base + L.env * (p.acc ? 1 : 0.55) * (0.35 + sweep * 0.65);
       lp.frequency.setValueAtTime(peak, t);
-      lp.frequency.exponentialRampToValueAtTime(acidBase, t + (p.acc ? 0.22 : 0.13));
+      lp.frequency.exponentialRampToValueAtTime(L.base, t + (p.acc ? 0.22 : 0.13));
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(p.acc ? 0.26 : 0.17, t + 0.004);
       g.gain.exponentialRampToValueAtTime(0.0001, t + (p.slide ? step * 0.95 : 0.16));
       o.connect(lp);
       lp.connect(g);
-      g.connect(wall);
+      g.connect(voiceBus);
       g.connect(delay);
       o.start(t);
       o.stop(t + step + 0.02);
     };
 
-    const riser = (t, bars) => {
-      const n = ctx.createBufferSource();
-      n.buffer = noise;
-      n.loop = true;
-      const bp = ctx.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.Q.value = 1.4;
-      const len = bars * 4 * beat;
-      bp.frequency.setValueAtTime(180, t);
-      bp.frequency.exponentialRampToValueAtTime(5200, t + len);
+    // a chord of detuned saws, short, through a filter, into the delay
+    const stab = (t, L, p, sweep, up) => {
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.Q.value = 3;
+      lp.frequency.setValueAtTime(600 + 2600 * sweep, t);
+      lp.frequency.exponentialRampToValueAtTime(400, t + 0.2);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.2, t + len);
-      g.gain.setValueAtTime(0.0001, t + len + 0.01);
-      n.connect(bp);
-      bp.connect(g);
+      g.gain.exponentialRampToValueAtTime(p.acc ? 0.16 : 0.11, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.19);
+      L.chord.forEach((iv, k) => {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = MIDI(p.note + iv + (up ? 12 : 0));
+        o.detune.value = (k - 1) * L.detune;
+        o.connect(lp);
+        o.start(t);
+        o.stop(t + 0.22);
+      });
+      lp.connect(g);
+      g.connect(voiceBus);
+      g.connect(delay);
+    };
+
+    // FM pluck: a sine bent by another sine, the bend dying fast
+    const pluck = (t, L, p, sweep, up) => {
+      const car = ctx.createOscillator();
+      car.type = "sine";
+      const hz = MIDI(p.note + (up ? 12 : 0));
+      car.frequency.value = hz;
+      const mod = ctx.createOscillator();
+      mod.type = "sine";
+      mod.frequency.value = hz * L.ratio;
+      const mg = ctx.createGain();
+      mg.gain.setValueAtTime(hz * (1.5 + sweep * 3), t);
+      mg.gain.exponentialRampToValueAtTime(1, t + 0.12);
+      mod.connect(mg);
+      mg.connect(car.frequency);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(p.acc ? 0.2 : 0.13, t + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+      car.connect(g);
+      g.connect(voiceBus);
+      g.connect(delay);
+      car.start(t);
+      mod.start(t);
+      car.stop(t + 0.16);
+      mod.stop(t + 0.16);
+    };
+
+    // the zap: a square dropping two octaves in sixty milliseconds
+    const zap = (t) => {
+      const o = ctx.createOscillator();
+      o.type = "square";
+      o.frequency.setValueAtTime(1800 + Math.random() * 1200, t);
+      o.frequency.exponentialRampToValueAtTime(120, t + 0.06);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      o.connect(g);
+      g.connect(voiceBus);
+      g.connect(delay);
+      o.start(t);
+      o.stop(t + 0.1);
+    };
+
+    // the pad, for the breakdowns: two saws a few cents apart and an
+    // octave, under a filter that breathes
+    const pad = (t, len, note) => {
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.Q.value = 1.2;
+      lp.frequency.setValueAtTime(500, t);
+      lp.frequency.linearRampToValueAtTime(1800, t + len * 0.6);
+      lp.frequency.linearRampToValueAtTime(400, t + len);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.09, t + 1.6);
+      g.gain.setValueAtTime(0.09, t + len - 2);
+      g.gain.linearRampToValueAtTime(0.0001, t + len);
+      [[0, -6], [0, 6], [12, 0], [7, 3]].forEach(([iv, det]) => {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = MIDI(note + 12 + iv);
+        o.detune.value = det;
+        o.connect(lp);
+        o.start(t);
+        o.stop(t + len + 0.1);
+      });
+      lp.connect(g);
       g.connect(wall);
       g.connect(verb);
-      n.start(t);
-      n.stop(t + len + 0.05);
     };
 
-    /* the arrangement, by bar */
-    const partsAt = (bar) => {
-      const e = energyAt(bar);
-      const breath = bar === 31;
-      const breakdown = bar >= 56 && bar < 64;
-      return {
-        kick: !breath && !breakdown && bar < BARS - 1,
-        hats: bar >= 2 && !breath && !breakdown && bar < BARS - 3,
-        fast: e === 3, // hats on every sixteenth
-        bass: bar >= 8 && !breath && !breakdown && bar < BARS - 4,
-        acid: bar >= 16 && !breath && bar < BARS - 6,
-        high: e === 3, // the acid an octave up
-        clap: e >= 2,
-        drop: e >= 2,
-        breakdown,
-      };
+    /* ---------- transitions ---------- */
+    const riser = (t, len, kind = kit.riser) => {
+      if (kind === "noise" || kind === "reverse") {
+        const n = ctx.createBufferSource();
+        n.buffer = noise;
+        n.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.Q.value = 1.4;
+        bp.frequency.setValueAtTime(kind === "reverse" ? 2400 : 180, t);
+        bp.frequency.exponentialRampToValueAtTime(kind === "reverse" ? 400 : 5200, t + len);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(kind === "reverse" ? 0.26 : 0.2, t + len);
+        g.gain.setValueAtTime(0.0001, t + len + 0.01);
+        n.connect(bp);
+        bp.connect(g);
+        g.connect(wall);
+        g.connect(verb);
+        n.start(t);
+        n.stop(t + len + 0.05);
+      } else if (kind === "pitch") {
+        const o = ctx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(110, t);
+        o.frequency.exponentialRampToValueAtTime(1760, t + len);
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.Q.value = 3;
+        bp.frequency.setValueAtTime(300, t);
+        bp.frequency.exponentialRampToValueAtTime(4000, t + len);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.14, t + len);
+        g.gain.setValueAtTime(0.0001, t + len + 0.01);
+        o.connect(bp);
+        bp.connect(g);
+        g.connect(wall);
+        g.connect(verb);
+        o.start(t);
+        o.stop(t + len + 0.05);
+      }
+      // the roll is scheduled by the step loop, so it stays on the grid
     };
 
+    /* ---------- the night, step by step ---------- */
     const t0 = ctx.currentTime + 0.12;
     state.startAt = t0;
-    const barSec = 4 * beat;
-    // the wall opens over the first eight bars, and closes over the last eight
+    const secAt = (bar) => sectionAt(bar);
+    const firstBarSec = barStart[plan.secs[0].bars] || 8;
+    // the wall opens over the intro and closes over the outro
+    const outro = plan.secs[plan.secs.length - 1];
     wall.frequency.setValueAtTime(380, t0);
-    wall.frequency.exponentialRampToValueAtTime(18000, t0 + 8 * barSec);
-    wall.frequency.setValueAtTime(18000, t0 + (BARS - 8) * barSec);
-    wall.frequency.exponentialRampToValueAtTime(240, t0 + BARS * barSec);
-    riser(t0 + 30 * barSec, 2);
-    riser(t0 + 62 * barSec, 2);
+    wall.frequency.exponentialRampToValueAtTime(18000, t0 + barStart[plan.secs[0].bars] || t0 + firstBarSec);
+    wall.frequency.setValueAtTime(18000, t0 + barStart[outro.start]);
+    wall.frequency.exponentialRampToValueAtTime(240, t0 + totalSec);
+
+    // risers before every drop, pads over every breakdown
+    plan.secs.forEach((s, i) => {
+      const next = plan.secs[i + 1];
+      if (next && next.kind === "drop" && (s.kind === "riser" || s.kind === "breath" || s.kind === "build")) {
+        const len = Math.min(2, s.bars) * 16 * barStep[s.start];
+        riser(t0 + barStart[s.start + s.bars] - len, len);
+      }
+      if (kit.pad && (s.kind === "breakdown" || s.kind === "intro")) {
+        const len = s.bars * 16 * barStep[s.start];
+        pad(t0 + barStart[s.start], len, kit.rootMidi + 12);
+      }
+    });
 
     let stepIdx = 0;
-    const totalSteps = BARS * 16;
+    let bar = 0;
+    let s16 = 0;
+    let barT = t0;
+    let dropsSeen = 0;
+    let lastDrop = null;
     const LOOKAHEAD = 0.14;
     const tick = () => {
       if (!state.running) return;
-      while (stepIdx < totalSteps && t0 + stepIdx * step < ctx.currentTime + LOOKAHEAD) {
-        const t = t0 + stepIdx * step;
-        const bar = Math.floor(stepIdx / 16);
-        const s16 = stepIdx % 16;
-        const parts = partsAt(bar);
+      while (bar < plan.bars) {
+        const step = barStep[bar];
+        const t = barT + s16 * step;
+        if (t >= ctx.currentTime + LOOKAHEAD) break;
+        const sec = secAt(bar);
+        const inSec = bar - sec.start;
+        const left = sec.bars - inSec;
+        const kind = sec.kind;
         state.bar = bar;
-        if (parts.kick && s16 % 4 === 0) kick(t);
-        if (parts.bass && s16 % 4 !== 0) bass(t);
-        if (parts.hats && (s16 % 2 === 1 || (parts.fast && s16 % 4 === 2))) hat(t, false);
-        if (parts.hats && bar % 4 === hatOpen && s16 === 14) hat(t, true);
-        if (parts.clap && (s16 === 4 || s16 === 12)) clap(t);
-        if (parts.acid) {
-          const p = pattern[s16];
-          // the cutoff sweeps up over eight bars, again and again, harder
-          // in the drops, and barely at all in the breakdown
-          const sweep = ((bar % 8) / 8 + s16 / 128) * (parts.drop ? 1 : parts.breakdown ? 0.35 : 0.7);
-          if (p.on) acid(t, p, sweep, parts.high);
+        if (sec !== lastDrop && kind === "drop") {
+          lastDrop = sec;
+          dropsSeen = sec.n;
         }
+        const drop = kind === "drop" || kind === "tease";
+        const later = kind === "drop" && sec.n >= 2;
+        const half = kind === "halftime";
+        // a fill in the last bar of every eight of a drop
+        const fillBar = drop && inSec % 8 === 7 && kit.fill !== "none";
+        const fill = fillBar ? kit.fill : null;
+        const lastBeat = s16 >= 12;
+        const lastHalf = s16 >= 8;
+        const silenced = fill === "silence" && lastBeat;
+        const muted = silenced || (fill === "mute" && lastHalf);
+        // key: the later drops move
+        const transpose = kit.keyChange && dropsSeen >= 2 && drop ? kit.keyChange : 0;
+
+        /* kick */
+        const kickOn =
+          !silenced &&
+          (kind === "intro" || kind === "build" || drop || kind === "riser" || half || (kind === "outro" && left > 1));
+        if (kickOn) {
+          if (half) {
+            if (s16 === 0 || s16 === 8) kick(t);
+          } else if (fill === "stutter" && lastBeat) {
+            kick(t, true);
+          } else if (s16 % 4 === 0) kick(t);
+        }
+
+        /* the roll: snare hits that come faster through the bar */
+        if (((kind === "riser" && kit.riser === "roll") || fill === "roll") && !silenced) {
+          const every = kind === "riser" ? (inSec === 0 ? 4 : s16 < 8 ? 2 : 1) : lastHalf ? (s16 < 12 ? 2 : 1) : 4;
+          if (s16 % every === 0) snare(t, kit.perc.snare === "none" ? "snare" : kit.perc.snare, 0.5 + (s16 / 16) * 0.5);
+        }
+        if (fill === "toms" && lastBeat && !silenced) tom(t, [220, 165, 110, 82][s16 - 12]);
+
+        /* bass */
+        const bassOn = !muted && (kind === "build" || drop || kind === "riser" || half || (kind === "outro" && left > 3));
+        if (bassOn) {
+          const mask = BASS_PATTERNS[half ? "offbeat" : kit.bass.pattern];
+          if (mask[s16 % 4]) {
+            let note = kit.rootMidi + transpose;
+            if (kit.bass.fifth && bar % 2 === 1) note += 7;
+            if (kit.bass.pattern === "walking" && s16 % 4 === 3) note += kit.bass.fifth ? 5 : 12;
+            if (kit.bass.octave && s16 % 8 === 6) note += 12;
+            bass(t, note, half ? 1.6 : 1);
+          }
+        }
+
+        /* hats and shaker */
+        const hatsOn = !silenced && ((kind === "intro" && inSec >= 2) || kind === "build" || drop || kind === "riser" || (kind === "outro" && left > 2));
+        if (hatsOn) {
+          const pat = HAT_PATTERNS[later && kit.hats.pattern === "off8" ? "sixteen" : kit.hats.pattern];
+          if (pat(s16)) hat(t, false, kind === "intro");
+          if (bar % 4 === kit.hats.open && s16 === 14) hat(t, true);
+          if (kit.hats.shaker && drop && s16 % 2 === 0) shaker(t);
+        }
+        if (half && s16 % 8 === 4) hat(t, false);
+
+        /* the backbeat */
+        if (drop && !silenced && (s16 === 4 || s16 === 12) && !(fill === "roll" && lastHalf)) snare(t);
+
+        /* leads */
+        const leadsOn = !muted && (drop || (kind === "build" && inSec >= sec.bars / 2) || kind === "breakdown" || kind === "riser" || (kind === "outro" && left > 4));
+        if (leadsOn) {
+          const sweep = ((inSec % 8) / 8 + s16 / 128) * (drop ? 1 : kind === "breakdown" ? 0.35 : 0.7);
+          kit.leads.forEach((L, li) => {
+            // the breakdown keeps one voice; the build brings them in one at a time
+            if (kind === "breakdown" && li !== 0) return;
+            if (kind === "build" && li > Math.floor(((inSec - sec.bars / 2) / (sec.bars / 2)) * kit.leads.length)) return;
+            const p = L.pattern[(bar * 16 + s16) % L.len];
+            const up = later && L.octaveUp;
+            const pt = transpose ? { ...p, note: p.note + transpose } : p;
+            if (L.kind === "zap") {
+              if (drop && p.on && Math.random() < 0.7) zap(t);
+              return;
+            }
+            if (!p.on) return;
+            if (L.kind === "acid") acid(t, L, pt, sweep, up, step);
+            else if (L.kind === "stab") stab(t, L, pt, sweep, up);
+            else if (L.kind === "pluck") pluck(t, L, pt, sweep, up);
+          });
+        }
+
+        // the delay follows the tempo
+        if (s16 === 0) delay.delayTime.setTargetAtTime(step * kit.fx.delayDiv, t, 0.05);
+
+        s16++;
         stepIdx++;
+        if (s16 === 16) {
+          s16 = 0;
+          barT += step * 16;
+          bar++;
+        }
       }
-      if (stepIdx >= totalSteps) {
-        state.ended = true;
-        return;
-      }
+      if (bar >= plan.bars) state.ended = true;
     };
     state.timer = setInterval(tick, 25);
     tick();
@@ -686,20 +1108,33 @@ function makeTrip(seed) {
 
   // kick envelope 0..1 at an audio time, for the visuals
   function pulse(now) {
+    const bs = state.barStep[Math.min(state.bar, state.barStep.length - 1)] || 0.1;
+    const beatLen = bs * 4;
     let p = 0;
     for (let i = state.kicks.length - 1; i >= 0; i--) {
       const d = now - state.kicks[i];
       if (d < 0) continue;
-      p = Math.max(0, 1 - d / (beat * 0.9));
+      p = Math.max(0, 1 - d / (beatLen * 0.9));
       break;
     }
     return p;
   }
+  // the backbeat, as a short flash
+  function clapPulse(now) {
+    for (let i = state.claps.length - 1; i >= 0; i--) {
+      const d = now - state.claps[i];
+      if (d < 0) continue;
+      return d < 0.07 ? 1 - d / 0.07 : 0;
+    }
+    return 0;
+  }
 
-  const api = { state, start, stop, pulse, beat };
-  if (typeof window !== "undefined") window.__thTrip = api; // debug handle
+  const api = { state, start, stop, pulse, clapPulse };
   return api;
 }
+// debug handles: the running trip, and a way to deal a trip without
+// playing it, to see what a seed would have been
+if (typeof window !== "undefined") window.__thCompose = (seed) => makeTrip(seed).state;
 
 /* ============================================================
    THE GEOMETRY — five families, every parameter seeded, and all of
@@ -710,10 +1145,12 @@ function makeTrip(seed) {
 
    And this is the one place on the site with colour in it. The
    sheet is black and bone; the tab is where the colour is. Every
-   trip is dealt a palette: the full wheel turning round the fold,
-   a pair of opposites that swap on the kick, heat, or ice. In the
-   drops the stock itself flashes, rows of type are thrown sideways
-   on the beat, and the second drop strobes in eighths.
+   trip is dealt a palette, and a second family of figure that it
+   turns into at the second drop. In the drops the kick lights the
+   stock and throws the wheel round, the backbeat turns the type
+   inside out in a white frame, rows of type are thrown sideways,
+   the sheet shakes, cells spark, and the strobes come in eighths and
+   then in sixteenths.
    ============================================================ */
 const RAMP = " .:-=+*#%@";
 const CELL = 10; // sheet px per glyph
@@ -725,14 +1162,13 @@ const KROWS = SH / CELL; // 100
 const HUES = 24; // rows of the atlas: the wheel in fifteen-degree steps
 const ROW_INK = HUES; // then ink, then red
 const ROW_RED = HUES + 1;
-const PALETTES = ["ACID", "DUO", "HEAT", "ICE"];
+const PALETTES = ["ACID", "DUO", "HEAT", "ICE", "NEON", "STROBE", "THERMAL", "SPLIT"];
 
-function makeVisual(seed, family, DPR) {
+function makeVisual(seed, family, family2, DPR) {
   const r = rng(seed);
   const spin = (r() - 0.5) * 0.9;
   const twist = r() * 0.6;
   const sides = 3 + Math.floor(r() * 6);
-  const copies = 3 + Math.floor(r() * 6);
   const ka = 2 + Math.floor(r() * 7);
   const kb = 1 + Math.floor(r() * 4);
   // few enough rings that every band is wider than a glyph
@@ -741,7 +1177,9 @@ function makeVisual(seed, family, DPR) {
   // The tunnel is never folded — its rings turn against each other, and
   // laid over its own mirror image the dark bands disappear under the
   // lit ones of the copy.
-  const fold = family === 0 ? 1 : [1, 1, 2, 3, 4, 6, 8][Math.floor(r() * 7)];
+  const foldOf = (fam) => (fam === 0 ? 1 : [1, 2, 3, 4, 6, 8][Math.floor(r() * 6)]);
+  const fold1 = foldOf(family);
+  const fold2 = foldOf(family2);
   const orbits = [];
   for (let i = 0; i < 3 + Math.floor(r() * 3); i++) {
     orbits.push({
@@ -754,9 +1192,11 @@ function makeVisual(seed, family, DPR) {
 
   /* the palette this tab was dealt */
   const palette = Math.floor(r() * PALETTES.length);
-  const hueA = Math.floor(r() * HUES); // the duo's first colour; its opposite is twelve on
+  const hueA = Math.floor(r() * HUES);
   const wheelDir = r() > 0.5 ? 1 : -1;
   const wheelSpeed = 0.06 + r() * 0.1;
+  const neon = [];
+  for (let i = 0; i < 6; i++) neon.push(Math.floor(r() * HUES));
 
   /* offscreen: the figure, and the fold of it */
   const geo = document.createElement("canvas");
@@ -795,21 +1235,23 @@ function makeVisual(seed, family, DPR) {
     }
   }
   const glitchRows = new Int8Array(KROWS);
+  let kickShift = 0; // the wheel, kicked round
+  let lastKickFrame = -1;
 
   const W = INK;
-  function figure(t, p, energy) {
+  function figure(fam, t, p, energy) {
     g.fillStyle = "#000";
     g.fillRect(0, 0, GW, GH);
     g.save();
     g.translate(GW / 2, GH / 2);
     g.scale(0.5, 0.5); // the families are written in sheet coordinates
     const lean = Math.sin(t * 0.21) * 0.05;
-    const hurry = 1 + energy * 0.45; // the drops turn everything faster
+    const hurry = 1 + energy * 0.5; // the drops turn everything faster
     g.rotate(lean + t * spin * 0.1 * hurry);
-    const zoom = 1 + p * (0.07 + energy * 0.04) + Math.sin(t * 0.37) * 0.03;
+    const zoom = 1 + p * (0.12 + energy * 0.06) + Math.sin(t * 0.37) * 0.03;
     g.scale(zoom, zoom);
 
-    if (family === 0) {
+    if (fam === 0) {
       /* tunnel: filled rings of polygon, alternating light and dark,
          pouring toward the centre and turning as they go */
       const list = [];
@@ -817,7 +1259,7 @@ function makeVisual(seed, family, DPR) {
         const u = ((i / rings + t * 0.09 * hurry) % 1 + 1) % 1;
         list.push({ u, i });
       }
-      list.sort((a, b) => b.u - a.u); // big first, so each ring sits inside the last
+      list.sort((a, b) => b.u - a.u);
       list.forEach(({ u, i }) => {
         const s = Math.pow(u, 1.6) * 900 + 8;
         const rot = i * twist + t * spin * hurry + u * 2;
@@ -835,7 +1277,7 @@ function makeVisual(seed, family, DPR) {
         g.closePath();
         g.fill();
       });
-    } else if (family === 1) {
+    } else if (fam === 1) {
       /* rose: r = cos(kθ), set thick and glowing, two of them turning
          against each other, the inside washed */
       const k = ka / kb + Math.sin(t * 0.12) * 0.08;
@@ -863,7 +1305,7 @@ function makeVisual(seed, family, DPR) {
         }
         g.restore();
       }
-    } else if (family === 2) {
+    } else if (fam === 2) {
       /* lattice: a field of filled figures, every other one lit, each
          turned by its distance, so the sheet rolls with moiré */
       const { nx, ny, f: ff } = lattice;
@@ -890,7 +1332,7 @@ function makeVisual(seed, family, DPR) {
           g.fill();
         }
       }
-    } else if (family === 3) {
+    } else if (fam === 3) {
       /* phyllotaxis: eleven hundred seeds at the golden angle, a wave
          of light running out through them against the spin */
       const N = 1100;
@@ -945,7 +1387,7 @@ function makeVisual(seed, family, DPR) {
   /* the fold: the figure laid round the centre `fold` times, mirrored
      every other time. The passes take the brighter of each other, not
      the sum — summed, three mirrored fills are a white sheet. */
-  function foldField(flip) {
+  function foldField(fold, flip) {
     f.globalCompositeOperation = "source-over";
     f.fillStyle = "#000";
     f.fillRect(0, 0, GW, GH);
@@ -972,64 +1414,99 @@ function makeVisual(seed, family, DPR) {
   }
 
   /* which row of the atlas a cell is set from */
-  function hueRow(i, lum, t, p, energy, kickFlip) {
+  function hueRow(i, lum, t, energy, eighth, kickFlip) {
+    const shift = kickShift;
     if (palette === 0) {
-      // the wheel, turning round the fold, pulled along by brightness
-      let h = angle[i] * wheelDir + t * wheelSpeed * (1 + energy) + lum * 0.25 + dist[i] * 0.15;
+      // the wheel, turning round the fold, pulled along by brightness,
+      // and kicked round by every kick
+      let h = angle[i] * wheelDir + t * wheelSpeed * (1 + energy) + lum * 0.25 + dist[i] * 0.15 + shift / HUES;
       if (kickFlip) h += 0.5;
       return ((Math.floor(h * HUES) % HUES) + HUES) % HUES;
     }
     if (palette === 1) {
-      // two opposites: the light in one, the dark in the other, and the
-      // kick swaps them
       const bright = lum > 0.5 !== kickFlip;
-      return (hueA + (bright ? 0 : HUES / 2)) % HUES;
+      return (hueA + shift + (bright ? 0 : HUES / 2)) % HUES;
     }
     if (palette === 2) {
-      // heat: red through orange to yellow, white in the hottest cells
       if (lum > 0.92) return ROW_INK;
       return (Math.floor(lum * 4.99) + (kickFlip ? 1 : 0)) % HUES; // 0°..60°
     }
-    // ice: cyan through blue to magenta
-    return (12 + Math.floor(lum * 7.99) + (kickFlip ? 2 : 0)) % HUES; // 180°..300°
+    if (palette === 3) return (12 + Math.floor(lum * 7.99) + (kickFlip ? 2 : 0)) % HUES; // 180°..300°
+    if (palette === 4) {
+      // neon: six colours of the tab's own, striped round the fold
+      const k = Math.floor(angle[i] * 6 + t * (0.4 + energy * 0.6) + shift + lum * 2);
+      return neon[((k % 6) + 6) % 6];
+    }
+    if (palette === 5) {
+      // strobe: one colour, the whole field, changing every eighth
+      return (hueA + eighth * 7 + shift) % HUES;
+    }
+    if (palette === 6) {
+      // thermal: blue through magenta and red to yellow, white at the top
+      if (lum > 0.95) return ROW_INK;
+      return (16 + Math.floor(lum * 12) + (kickFlip ? 3 : 0)) % HUES;
+    }
+    // split: three colours a third of the wheel apart, by brightness
+    return (hueA + shift + 8 * Math.floor(lum * 2.99)) % HUES;
   }
 
-  /* drop: 0 behind the wall, 1 build, 2 first drop, 3 second drop.
-     strobe: in the second drop's bursts, which eighth we are on, or -1. */
-  function draw(c, t, p, energy, strobe, calm) {
-    figure(t, p, energy);
-    const kick = p > 0.86 && energy >= 2 && !calm;
-    foldField(kick && energy === 3);
+  /* info: energy 0..3 · strobe 0 none, 1 eighths, 2 sixteenths ·
+     eighth and sixteenth counters within the bar · clap 0..1 ·
+     switched: past the second drop, the other family · calm */
+  function draw(c, t, p, info) {
+    const { energy, strobe, eighth, sixteenth, clap, switched, calm, frame } = info;
+    const fam = switched ? family2 : family;
+    const fold = switched ? fold2 : fold1;
+    figure(fam, t, p, energy);
+    const inDrop = energy >= 2 && !calm;
+    const kick = p > 0.86 && inDrop;
+    if (kick && frame - lastKickFrame > 6) {
+      lastKickFrame = frame;
+      kickShift += 5;
+      const gr = rng(frame);
+      for (let row = 0; row < KROWS; row++) glitchRows[row] = gr() < 0.16 ? Math.floor((gr() - 0.5) * 24) : 0;
+    }
+    foldField(fold, kick && energy === 3);
     const img = f.getImageData(0, 0, GW, GH).data;
 
-    /* the stock: black, except that in the drops the kick lights it and
-       the strobe bursts slam it between a colour and its opposite */
-    if (strobe >= 0 && !calm) {
-      const h = ((hueA + (strobe % 2 ? HUES / 2 : 0)) % HUES) * (360 / HUES);
-      c.fillStyle = `hsl(${h}, 100%, ${strobe % 2 ? 50 : 8}%)`;
+    /* the stock: black, except in the drops — the kick lights it, the
+       backbeat whites it out, and the strobes slam it between a colour
+       and its opposite */
+    const strobing = strobe > 0 && !calm;
+    const strobePhase = strobe === 2 ? sixteenth : eighth;
+    const clapFlash = clap > 0 && inDrop;
+    if (clapFlash) {
+      c.fillStyle = `rgba(240,238,230,${0.35 + clap * 0.55})`;
+    } else if (strobing) {
+      const h = ((hueA + kickShift + (strobePhase % 2 ? HUES / 2 : 0)) % HUES) * (360 / HUES);
+      c.fillStyle = `hsl(${h}, 100%, ${strobePhase % 2 ? 52 : 6}%)`;
     } else if (kick) {
-      const h = (palette === 0 ? (t * 90) % 360 : palette === 1 ? hueA * 15 : palette === 2 ? 10 : 200);
-      c.fillStyle = `hsl(${h}, 100%, ${Math.round(14 + (p - 0.86) * 160)}%)`;
+      const h = (palette === 0 || palette === 4 || palette === 5 ? (kickShift * 15 + t * 90) % 360 : palette === 1 || palette === 7 ? hueA * 15 : palette === 2 ? 10 : palette === 3 ? 200 : 280);
+      c.fillStyle = `hsl(${h}, 100%, ${Math.round(14 + (p - 0.86) * 200)}%)`;
     } else c.fillStyle = "#000";
+    if (clapFlash) {
+      c.fillStyle = "#000";
+      c.fillRect(0, 0, SW, SH);
+      c.fillStyle = `rgba(240,238,230,${0.35 + clap * 0.55})`;
+    }
     c.fillRect(0, 0, SW, SH);
 
-    // on the kick, in the drops, rows of the type are thrown sideways
+    // the sheet shakes on the kick
+    const shakeX = kick ? Math.round((rng(frame * 3)() - 0.5) * 4) : 0;
+    const shakeY = kick ? Math.round((rng(frame * 5)() - 0.5) * 3) : 0;
+    const invert = (strobing && strobePhase % 2 === 1) || clapFlash;
     const glitch = kick;
-    if (glitch) {
-      const gr = rng(Math.floor(t * 50));
-      for (let row = 0; row < KROWS; row++) glitchRows[row] = gr() < 0.12 ? Math.floor((gr() - 0.5) * 18) : 0;
-    }
-    const invert = strobe >= 0 && strobe % 2 === 1 && !calm;
+    const spark = inDrop ? 0.035 + energy * 0.01 : 0;
     const n = RAMP.length;
-    const redR = 1.5 + p * 4; // cells round the centre set in red
+    const redR = 1.5 + p * 4;
     const cxC = KCOLS / 2;
     const cyC = KROWS / 2;
+    const sparkSeed = frame * 7919;
     for (let row = 0; row < KROWS; row++) {
       const sy = row * GC + GC / 2;
-      const shift = glitch ? glitchRows[row] : 0;
+      const shift = (glitch ? glitchRows[row] : 0) + shakeX;
       for (let col = 0; col < KCOLS; col++) {
         const sx = col * GC + GC / 2;
-        // two taps so thin strokes still register
         const i0 = ((sy | 0) * GW + (sx | 0)) * 4;
         const i1 = (((sy + 1) | 0) * GW + ((sx + 1) | 0)) * 4;
         let lum = (img[i0] + img[i1]) / 510;
@@ -1039,34 +1516,42 @@ function makeVisual(seed, family, DPR) {
         const ci = row * KCOLS + col;
         const dx = col - cxC + 0.5;
         const dy = row - cyC + 0.5;
-        const atlasRow =
-          dx * dx + dy * dy < redR * redR ? ROW_RED : energy === 0 && !calm ? ROW_INK : calm ? ROW_INK : hueRow(ci, lum, t, p, energy, kick);
+        let atlasRow;
+        if (dx * dx + dy * dy < redR * redR) atlasRow = ROW_RED;
+        else if (calm || energy === 0) atlasRow = ROW_INK;
+        else if (spark && hash2(ci, sparkSeed) < spark) atlasRow = Math.floor(hash2(sparkSeed, ci) * HUES);
+        else atlasRow = hueRow(ci, lum, t, energy, eighth, kick);
         const x = (((col + shift) % KCOLS) + KCOLS) % KCOLS;
-        c.drawImage(atlas, idx * AS, atlasRow * AS, AS, AS, x * CELL, row * CELL, CELL, CELL);
+        const y = (((row + shakeY) % KROWS) + KROWS) % KROWS;
+        c.drawImage(atlas, idx * AS, atlasRow * AS, AS, AS, x * CELL, y * CELL, CELL, CELL);
       }
     }
     // the centre always holds the beat, even over black
     c.drawImage(atlas, (n - 1) * AS, ROW_RED * AS, AS, AS, (KCOLS / 2 - 1) * CELL, (KROWS / 2 - 1) * CELL, CELL, CELL);
   }
 
-  return { draw, fold, palette: PALETTES[palette] };
+  return { draw, palette: PALETTES[palette] };
 }
 
 const FAMILY_NAMES = ["TUNNEL", "ROSE", "LATTICE", "PHYLLO", "ORBITS"];
+const SECTION_NAMES = {
+  intro: "BEHIND THE WALL", build: "BUILD", tease: "TEASE", breath: "BREATH", drop: "DROP",
+  breakdown: "BREAKDOWN", halftime: "HALF TIME", riser: "RISER", outro: "COMEDOWN",
+};
 
 /* ============================================================
    THE TRIP — full sheet, one tab's worth
    ============================================================ */
 function Trip({ sheet, tab, onDone, reduceMotion }) {
   const ref = useRef(null);
-  const [hud, setHud] = useState({ bpm: 0, bar: 0, fam: "", left: 0 });
+  const [hud, setHud] = useState({ bpm: 0, bar: 0, bars: 0, fam: "", sec: "", left: 0 });
 
   useEffect(() => {
     const seed = Math.floor(hash2(sheet, tab) * 1e9) ^ (tab * 7919);
     const trip = makeTrip(seed);
     const canvas = ref.current;
     const DPR = Math.min(1.5, window.devicePixelRatio || 1);
-    const vis = makeVisual(trip.state.visualSeed, trip.state.family, DPR);
+    const vis = makeVisual(trip.state.visualSeed, trip.state.family, trip.state.family2, DPR);
     trip.start();
     canvas.width = SW * DPR;
     canvas.height = SH * DPR;
@@ -1074,36 +1559,49 @@ function Trip({ sheet, tab, onDone, reduceMotion }) {
     c.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     let raf;
-    let last = 0;
     let hudAt = 0;
-    const frame = (ts) => {
-      raf = requestAnimationFrame(frame);
+    let frame = 0;
+    const tick = (ts) => {
+      raf = requestAnimationFrame(tick);
       if (document.hidden) return;
-      const dt = last ? Math.min(60, ts - last) / 1000 : 0.016;
-      last = ts;
-      const ctx = trip.state.ctx;
+      frame++;
+      const st = trip.state;
+      const ctx = st.ctx;
       if (!ctx) return;
       const now = ctx.currentTime;
-      const t = Math.max(0, now - trip.state.startAt);
+      const t = Math.max(0, now - st.startAt);
+      const bar = st.bar;
+      const sec = st.sectionAt(bar);
+      const energy = st.energyAt(bar);
+      const bs = st.barStep[Math.min(bar, st.barStep.length - 1)];
+      const inBar = Math.max(0, (t - st.barStart[Math.min(bar, st.barStart.length - 1)]) / bs);
       const p = reduceMotion ? trip.pulse(now) * 0.35 : trip.pulse(now);
-      const bar = trip.state.bar;
-      const energy = trip.state.energyAt(bar);
-      // which eighth of the bar we are on, during a strobe burst
-      const strobe = trip.state.strobeAt(bar) ? Math.floor((t / trip.state.step) % 16 / 2) : -1;
-      vis.draw(c, t, p, energy, strobe, reduceMotion);
+      vis.draw(c, t, p, {
+        energy,
+        strobe: reduceMotion ? 0 : st.strobeAt(bar),
+        eighth: Math.floor(inBar / 2) % 8,
+        sixteenth: Math.floor(inBar) % 16,
+        clap: reduceMotion ? 0 : trip.clapPulse(now),
+        switched: bar >= st.switchBar,
+        calm: reduceMotion,
+        frame,
+      });
       if (ts - hudAt > 250) {
         hudAt = ts;
+        const fam = FAMILY_NAMES[bar >= st.switchBar ? st.family2 : st.family];
         setHud({
-          bpm: trip.state.bpm,
-          bar: Math.min(trip.state.bars, trip.state.bar + 1),
-          fam: `${FAMILY_NAMES[trip.state.family]} · ${vis.palette}`,
-          left: Math.max(0, trip.state.totalSec - t),
+          bpm: sec.bpm,
+          bar: Math.min(st.bars, bar + 1),
+          bars: st.bars,
+          fam: `${fam} · ${vis.palette}`,
+          sec: SECTION_NAMES[sec.kind] + (sec.kind === "drop" ? " " + "I".repeat(sec.n) : ""),
+          left: Math.max(0, st.totalSec - t),
         });
       }
       // the last bar plays out into the room, then the sheet comes back
-      if (t > trip.state.totalSec + 1.6) finish(false);
+      if (t > st.totalSec + 1.6) finish(false);
     };
-    raf = requestAnimationFrame(frame);
+    raf = requestAnimationFrame(tick);
 
     let done = false;
     const finish = (early) => {
@@ -1159,7 +1657,7 @@ function Trip({ sheet, tab, onDone, reduceMotion }) {
         TAB {pad4(tab)} · SHEET {pad4(sheet)}
       </div>
       <div className="thTripHud thTripHudR">
-        {hud.bpm} BPM · {hud.fam} · BAR {String(hud.bar).padStart(2, "0")}/96
+        {hud.bpm} BPM · {hud.fam} · {hud.sec} · {String(hud.bar).padStart(2, "0")}/{hud.bars}
       </div>
       <div className="thTripHud thTripHudB">
         {mmss(hud.left * 1000)} <span className="thDim">· esc spits it out</span>
