@@ -1495,3 +1495,13 @@ svg g.haunt:hover .discOuter {
 .thTripHudR { right: 40px; top: 30px; }
 .thHudL { left: 114px; top: 38px; }
 .thHudR { right: 114px; top: 38px; }
+.thWarn {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  color: rgba(212, 61, 42, 0.7);
+  white-space: nowrap;
+}

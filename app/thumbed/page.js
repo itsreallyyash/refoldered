@@ -385,11 +385,20 @@ function makeTrip(seed) {
 
   const beat = 60 / bpm;
   const step = beat / 4;
-  const BARS = 32;
+  const BARS = 96;
   const totalSec = BARS * 4 * beat;
 
+  /* the shape of the night, by bar:
+     0–7 behind the wall · 8 bass · 16 acid · 31 a held breath and a
+     riser · 32–55 the first drop · 56–63 the floor drops out, the acid
+     alone in the delay · 64–87 the second drop, hats doubled, the acid
+     an octave up, the lights strobing · 88–95 the wall closes */
+  const energyAt = (bar) => (bar >= 64 && bar < 88 ? 3 : bar >= 32 && bar < 56 ? 2 : bar >= 16 && bar < 31 ? 1 : 0);
+  // eighth-note strobing, in bursts, in the second drop
+  const strobeAt = (bar) => bar >= 64 && bar < 88 && ((bar - 64) % 8 === 6 || (bar - 64) % 8 === 7);
+
   const state = {
-    bpm, bars: BARS, totalSec, family, visualSeed, scaleName,
+    bpm, bars: BARS, totalSec, family, visualSeed, scaleName, energyAt, strobeAt, step,
     ctx: null, startAt: 0, kicks: [], bar: 0, running: false, ended: false,
   };
 
@@ -529,11 +538,34 @@ function makeTrip(seed) {
       n.stop(t + len + 0.01);
     };
 
+    // a clap on two and four in the drops: three noise bursts a few
+    // milliseconds apart, through a bandpass, into the room
+    const clap = (t) => {
+      for (let k = 0; k < 3; k++) {
+        const n = ctx.createBufferSource();
+        n.buffer = noise;
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 1500;
+        bp.Q.value = 0.9;
+        const g = ctx.createGain();
+        const t1 = t + k * 0.011;
+        g.gain.setValueAtTime(k === 2 ? 0.3 : 0.14, t1);
+        g.gain.exponentialRampToValueAtTime(0.001, t1 + (k === 2 ? 0.16 : 0.03));
+        n.connect(bp);
+        bp.connect(g);
+        g.connect(wall);
+        if (k === 2) g.connect(verb);
+        n.start(t1);
+        n.stop(t1 + 0.2);
+      }
+    };
+
     let acidPrevHz = null;
-    const acid = (t, p, sweep) => {
+    const acid = (t, p, sweep, up) => {
       const o = ctx.createOscillator();
       o.type = acidWave;
-      const hz = midiHz(p.note);
+      const hz = midiHz(p.note + (up ? 12 : 0));
       if (p.slide && acidPrevHz) {
         o.frequency.setValueAtTime(acidPrevHz, t);
         o.frequency.exponentialRampToValueAtTime(hz, t + step * 0.8);
@@ -580,23 +612,33 @@ function makeTrip(seed) {
     };
 
     /* the arrangement, by bar */
-    const partsAt = (bar) => ({
-      kick: !(bar === 16) && bar < BARS - 1,
-      hats: bar >= 1 && bar !== 16 && bar < BARS - 2,
-      bass: bar >= 4 && bar !== 16 && bar < BARS - 3,
-      acid: bar >= 8 && bar !== 16 && bar < BARS - 4,
-      drop: bar >= 17 && bar < 28,
-    });
+    const partsAt = (bar) => {
+      const e = energyAt(bar);
+      const breath = bar === 31;
+      const breakdown = bar >= 56 && bar < 64;
+      return {
+        kick: !breath && !breakdown && bar < BARS - 1,
+        hats: bar >= 2 && !breath && !breakdown && bar < BARS - 3,
+        fast: e === 3, // hats on every sixteenth
+        bass: bar >= 8 && !breath && !breakdown && bar < BARS - 4,
+        acid: bar >= 16 && !breath && bar < BARS - 6,
+        high: e === 3, // the acid an octave up
+        clap: e >= 2,
+        drop: e >= 2,
+        breakdown,
+      };
+    };
 
     const t0 = ctx.currentTime + 0.12;
     state.startAt = t0;
-    // the wall opens over the first four bars, and closes over the last four
+    const barSec = 4 * beat;
+    // the wall opens over the first eight bars, and closes over the last eight
     wall.frequency.setValueAtTime(380, t0);
-    wall.frequency.exponentialRampToValueAtTime(18000, t0 + 4 * 4 * beat);
-    wall.frequency.setValueAtTime(18000, t0 + (BARS - 4) * 4 * beat);
-    wall.frequency.exponentialRampToValueAtTime(240, t0 + BARS * 4 * beat);
-    riser(t0 + 15 * 4 * beat, 1);
-    riser(t0 + 27 * 4 * beat, 1);
+    wall.frequency.exponentialRampToValueAtTime(18000, t0 + 8 * barSec);
+    wall.frequency.setValueAtTime(18000, t0 + (BARS - 8) * barSec);
+    wall.frequency.exponentialRampToValueAtTime(240, t0 + BARS * barSec);
+    riser(t0 + 30 * barSec, 2);
+    riser(t0 + 62 * barSec, 2);
 
     let stepIdx = 0;
     const totalSteps = BARS * 16;
@@ -611,13 +653,15 @@ function makeTrip(seed) {
         state.bar = bar;
         if (parts.kick && s16 % 4 === 0) kick(t);
         if (parts.bass && s16 % 4 !== 0) bass(t);
-        if (parts.hats && s16 % 2 === 1) hat(t, false);
+        if (parts.hats && (s16 % 2 === 1 || (parts.fast && s16 % 4 === 2))) hat(t, false);
         if (parts.hats && bar % 4 === hatOpen && s16 === 14) hat(t, true);
+        if (parts.clap && (s16 === 4 || s16 === 12)) clap(t);
         if (parts.acid) {
           const p = pattern[s16];
-          // the cutoff sweeps up over eight bars, twice, and harder in the drop
-          const sweep = ((bar % 8) / 8 + s16 / 128) * (parts.drop ? 1 : 0.7);
-          if (p.on) acid(t, p, sweep);
+          // the cutoff sweeps up over eight bars, again and again, harder
+          // in the drops, and barely at all in the breakdown
+          const sweep = ((bar % 8) / 8 + s16 / 128) * (parts.drop ? 1 : parts.breakdown ? 0.35 : 0.7);
+          if (p.on) acid(t, p, sweep, parts.high);
         }
         stepIdx++;
       }
@@ -662,8 +706,14 @@ function makeTrip(seed) {
    it typed. The figures are drawn as light on an offscreen sheet at
    half size, folded through a kaleidoscope, and then read back as
    brightness and set in the archive's own ramp of glyphs, one per
-   ten-pixel cell — sixteen thousand characters a frame. Nothing on
-   this site is a clean line; the trip is not going to be the first.
+   ten-pixel cell — sixteen thousand characters a frame.
+
+   And this is the one place on the site with colour in it. The
+   sheet is black and bone; the tab is where the colour is. Every
+   trip is dealt a palette: the full wheel turning round the fold,
+   a pair of opposites that swap on the kick, heat, or ice. In the
+   drops the stock itself flashes, rows of type are thrown sideways
+   on the beat, and the second drop strobes in eighths.
    ============================================================ */
 const RAMP = " .:-=+*#%@";
 const CELL = 10; // sheet px per glyph
@@ -672,6 +722,10 @@ const GH = SH / 2;
 const GC = CELL / 2; // a cell, on the offscreen
 const KCOLS = SW / CELL; // 160
 const KROWS = SH / CELL; // 100
+const HUES = 24; // rows of the atlas: the wheel in fifteen-degree steps
+const ROW_INK = HUES; // then ink, then red
+const ROW_RED = HUES + 1;
+const PALETTES = ["ACID", "DUO", "HEAT", "ICE"];
 
 function makeVisual(seed, family, DPR) {
   const r = rng(seed);
@@ -698,6 +752,12 @@ function makeVisual(seed, family, DPR) {
   }
   const lattice = { nx: 12 + Math.floor(r() * 10), ny: 8 + Math.floor(r() * 6), f: 0.004 + r() * 0.01 };
 
+  /* the palette this tab was dealt */
+  const palette = Math.floor(r() * PALETTES.length);
+  const hueA = Math.floor(r() * HUES); // the duo's first colour; its opposite is twelve on
+  const wheelDir = r() > 0.5 ? 1 : -1;
+  const wheelSpeed = 0.06 + r() * 0.1;
+
   /* offscreen: the figure, and the fold of it */
   const geo = document.createElement("canvas");
   geo.width = GW;
@@ -708,32 +768,45 @@ function makeVisual(seed, family, DPR) {
   fieldCv.height = GH;
   const f = fieldCv.getContext("2d", { willReadFrequently: true });
 
-  /* the type: the ramp set once into an atlas, in ink and in red */
+  /* the type: the ramp set once into an atlas — a row per hue, then
+     ink, then red */
   const AS = Math.ceil(CELL * DPR);
   const atlas = document.createElement("canvas");
   atlas.width = AS * RAMP.length;
-  atlas.height = AS * 2;
+  atlas.height = AS * (HUES + 2);
   const ac = atlas.getContext("2d");
   ac.font = `700 ${Math.round(CELL * 1.25 * DPR)}px ui-monospace, Menlo, monospace`;
   ac.textAlign = "center";
   ac.textBaseline = "middle";
-  for (let i = 0; i < RAMP.length; i++) {
-    ac.fillStyle = INK;
-    ac.fillText(RAMP[i], i * AS + AS / 2, AS / 2);
-    ac.fillStyle = RED;
-    ac.fillText(RAMP[i], i * AS + AS / 2, AS + AS / 2);
+  for (let row = 0; row < HUES + 2; row++) {
+    ac.fillStyle = row === ROW_INK ? INK : row === ROW_RED ? RED : `hsl(${row * (360 / HUES)}, 100%, 62%)`;
+    for (let i = 0; i < RAMP.length; i++) ac.fillText(RAMP[i], i * AS + AS / 2, row * AS + AS / 2);
   }
 
+  /* every cell's angle round the centre and distance from it, once */
+  const angle = new Float32Array(KCOLS * KROWS);
+  const dist = new Float32Array(KCOLS * KROWS);
+  for (let row = 0; row < KROWS; row++) {
+    for (let col = 0; col < KCOLS; col++) {
+      const dx = col - KCOLS / 2 + 0.5;
+      const dy = (row - KROWS / 2 + 0.5) * 1.6;
+      angle[row * KCOLS + col] = (Math.atan2(dy, dx) / (Math.PI * 2) + 1) % 1;
+      dist[row * KCOLS + col] = Math.hypot(dx, dy) / (KCOLS / 2);
+    }
+  }
+  const glitchRows = new Int8Array(KROWS);
+
   const W = INK;
-  function figure(t, p) {
+  function figure(t, p, energy) {
     g.fillStyle = "#000";
     g.fillRect(0, 0, GW, GH);
     g.save();
     g.translate(GW / 2, GH / 2);
     g.scale(0.5, 0.5); // the families are written in sheet coordinates
     const lean = Math.sin(t * 0.21) * 0.05;
-    g.rotate(lean + t * spin * 0.1);
-    const zoom = 1 + p * 0.07 + Math.sin(t * 0.37) * 0.03;
+    const hurry = 1 + energy * 0.45; // the drops turn everything faster
+    g.rotate(lean + t * spin * 0.1 * hurry);
+    const zoom = 1 + p * (0.07 + energy * 0.04) + Math.sin(t * 0.37) * 0.03;
     g.scale(zoom, zoom);
 
     if (family === 0) {
@@ -741,13 +814,13 @@ function makeVisual(seed, family, DPR) {
          pouring toward the centre and turning as they go */
       const list = [];
       for (let i = 0; i < rings; i++) {
-        const u = ((i / rings + t * 0.09) % 1 + 1) % 1;
+        const u = ((i / rings + t * 0.09 * hurry) % 1 + 1) % 1;
         list.push({ u, i });
       }
       list.sort((a, b) => b.u - a.u); // big first, so each ring sits inside the last
       list.forEach(({ u, i }) => {
         const s = Math.pow(u, 1.6) * 900 + 8;
-        const rot = i * twist + t * spin + u * 2;
+        const rot = i * twist + t * spin * hurry + u * 2;
         const lit = i % 2 === 0;
         const a = lit ? 0.55 + 0.45 * (1 - u) : 0.03 + 0.05 * (1 - u) + p * 0.08;
         g.fillStyle = `rgba(240,238,230,${a})`;
@@ -770,14 +843,14 @@ function makeVisual(seed, family, DPR) {
       const N = 480;
       for (let m = 0; m < 2; m++) {
         g.save();
-        g.rotate(m ? -t * 0.22 : t * 0.15);
+        g.rotate((m ? -t * 0.22 : t * 0.15) * hurry);
         g.lineWidth = m ? 3 : 5.5;
         g.strokeStyle = `rgba(240,238,230,${m ? 0.5 : 0.95})`;
         g.lineJoin = "round";
         g.beginPath();
         for (let i = 0; i <= N; i++) {
           const th = (i / N) * Math.PI * 2 * kb;
-          const rad = R * Math.cos((k + m * 0.5) * th + t * 0.6);
+          const rad = R * Math.cos((k + m * 0.5) * th + t * 0.6 * hurry);
           const px = Math.cos(th) * rad;
           const py = Math.sin(th) * rad;
           if (i === 0) g.moveTo(px, py);
@@ -801,8 +874,8 @@ function makeVisual(seed, family, DPR) {
           const x = (i - nx / 2 + 0.5) * gx;
           const y = (j - ny / 2 + 0.5) * gy;
           const d = Math.hypot(x, y);
-          const rot = d * ff * (1 + Math.sin(t * 0.3)) + t * 1.1 * (1 + p * 0.4);
-          const s = gx * 0.46 * (0.55 + 0.45 * Math.sin(d * 0.01 - t * 2.2)) * (1 + p * 0.25);
+          const rot = d * ff * (1 + Math.sin(t * 0.3)) + t * 1.1 * hurry * (1 + p * 0.4);
+          const s = gx * 0.46 * (0.55 + 0.45 * Math.sin(d * 0.01 - t * 2.2 * hurry)) * (1 + p * 0.25);
           const lit = (i + j) % 2 === 0;
           g.fillStyle = `rgba(240,238,230,${lit ? 0.9 : 0.18 + p * 0.25})`;
           g.beginPath();
@@ -823,13 +896,13 @@ function makeVisual(seed, family, DPR) {
       const N = 1100;
       const ga = Math.PI * (3 - Math.sqrt(5));
       const sc = 15 + p * 1.5;
-      const rot = t * spin * 2;
+      const rot = t * spin * 2 * hurry;
       for (let i = 0; i < N; i++) {
         const th = i * ga + rot;
         const rad = sc * Math.sqrt(i) * (1 + 0.03 * Math.sin(i * 0.05 + t * 3));
         const px = Math.cos(th) * rad;
         const py = Math.sin(th) * rad * 0.82;
-        const wave = 0.5 + 0.5 * Math.sin(i * 0.031 - t * 4.5);
+        const wave = 0.5 + 0.5 * Math.sin(i * 0.031 - t * 4.5 * hurry);
         g.fillStyle = `rgba(240,238,230,${0.12 + 0.88 * wave})`;
         g.beginPath();
         g.arc(px, py, 3 + wave * 6 + p * 2, 0, Math.PI * 2);
@@ -841,7 +914,7 @@ function makeVisual(seed, family, DPR) {
       orbits.forEach((o, oi) => {
         const SUB = 6;
         for (let s = 1; s <= SUB; s++) {
-          const tt = t - (1 / 60) * (1 - s / SUB);
+          const tt = (t - (1 / 60) * (1 - s / SUB)) * hurry;
           const a1 = tt * o.w1 + o.ph;
           const a2 = tt * o.w2;
           const x = Math.cos(a1) * o.r1 + Math.cos(a2) * o.r2 * (1 + p * 0.15);
@@ -872,19 +945,25 @@ function makeVisual(seed, family, DPR) {
   /* the fold: the figure laid round the centre `fold` times, mirrored
      every other time. The passes take the brighter of each other, not
      the sum — summed, three mirrored fills are a white sheet. */
-  function foldField() {
+  function foldField(flip) {
     f.globalCompositeOperation = "source-over";
     f.fillStyle = "#000";
     f.fillRect(0, 0, GW, GH);
     if (fold === 1) {
-      f.drawImage(geo, 0, 0);
+      if (flip) {
+        f.save();
+        f.translate(GW, 0);
+        f.scale(-1, 1);
+        f.drawImage(geo, 0, 0);
+        f.restore();
+      } else f.drawImage(geo, 0, 0);
       return;
     }
     f.globalCompositeOperation = "lighten";
     for (let i = 0; i < fold; i++) {
       f.save();
       f.translate(GW / 2, GH / 2);
-      f.rotate((i / fold) * Math.PI * 2);
+      f.rotate((i / fold) * Math.PI * 2 + (flip ? Math.PI / fold : 0));
       if (i % 2) f.scale(1, -1);
       f.drawImage(geo, -GW / 2, -GH / 2);
       f.restore();
@@ -892,40 +971,85 @@ function makeVisual(seed, family, DPR) {
     f.globalCompositeOperation = "source-over";
   }
 
-  function draw(c, t, p, drop) {
-    figure(t, p);
-    foldField();
+  /* which row of the atlas a cell is set from */
+  function hueRow(i, lum, t, p, energy, kickFlip) {
+    if (palette === 0) {
+      // the wheel, turning round the fold, pulled along by brightness
+      let h = angle[i] * wheelDir + t * wheelSpeed * (1 + energy) + lum * 0.25 + dist[i] * 0.15;
+      if (kickFlip) h += 0.5;
+      return ((Math.floor(h * HUES) % HUES) + HUES) % HUES;
+    }
+    if (palette === 1) {
+      // two opposites: the light in one, the dark in the other, and the
+      // kick swaps them
+      const bright = lum > 0.5 !== kickFlip;
+      return (hueA + (bright ? 0 : HUES / 2)) % HUES;
+    }
+    if (palette === 2) {
+      // heat: red through orange to yellow, white in the hottest cells
+      if (lum > 0.92) return ROW_INK;
+      return (Math.floor(lum * 4.99) + (kickFlip ? 1 : 0)) % HUES; // 0°..60°
+    }
+    // ice: cyan through blue to magenta
+    return (12 + Math.floor(lum * 7.99) + (kickFlip ? 2 : 0)) % HUES; // 180°..300°
+  }
+
+  /* drop: 0 behind the wall, 1 build, 2 first drop, 3 second drop.
+     strobe: in the second drop's bursts, which eighth we are on, or -1. */
+  function draw(c, t, p, energy, strobe, calm) {
+    figure(t, p, energy);
+    const kick = p > 0.86 && energy >= 2 && !calm;
+    foldField(kick && energy === 3);
     const img = f.getImageData(0, 0, GW, GH).data;
-    c.fillStyle = "#000";
+
+    /* the stock: black, except that in the drops the kick lights it and
+       the strobe bursts slam it between a colour and its opposite */
+    if (strobe >= 0 && !calm) {
+      const h = ((hueA + (strobe % 2 ? HUES / 2 : 0)) % HUES) * (360 / HUES);
+      c.fillStyle = `hsl(${h}, 100%, ${strobe % 2 ? 50 : 8}%)`;
+    } else if (kick) {
+      const h = (palette === 0 ? (t * 90) % 360 : palette === 1 ? hueA * 15 : palette === 2 ? 10 : 200);
+      c.fillStyle = `hsl(${h}, 100%, ${Math.round(14 + (p - 0.86) * 160)}%)`;
+    } else c.fillStyle = "#000";
     c.fillRect(0, 0, SW, SH);
-    // in the drop every kick throws the type the other way round
-    const flash = drop && p > 0.91;
+
+    // on the kick, in the drops, rows of the type are thrown sideways
+    const glitch = kick;
+    if (glitch) {
+      const gr = rng(Math.floor(t * 50));
+      for (let row = 0; row < KROWS; row++) glitchRows[row] = gr() < 0.12 ? Math.floor((gr() - 0.5) * 18) : 0;
+    }
+    const invert = strobe >= 0 && strobe % 2 === 1 && !calm;
     const n = RAMP.length;
+    const redR = 1.5 + p * 4; // cells round the centre set in red
     const cxC = KCOLS / 2;
     const cyC = KROWS / 2;
-    const redR = 1.5 + p * 4; // cells round the centre set in red
     for (let row = 0; row < KROWS; row++) {
       const sy = row * GC + GC / 2;
+      const shift = glitch ? glitchRows[row] : 0;
       for (let col = 0; col < KCOLS; col++) {
         const sx = col * GC + GC / 2;
         // two taps so thin strokes still register
         const i0 = ((sy | 0) * GW + (sx | 0)) * 4;
         const i1 = (((sy + 1) | 0) * GW + ((sx + 1) | 0)) * 4;
         let lum = (img[i0] + img[i1]) / 510;
-        if (flash) lum = 1 - lum;
-        let idx = Math.min(n - 1, Math.floor(lum * n));
+        if (invert) lum = 1 - lum;
+        const idx = Math.min(n - 1, Math.floor(lum * n));
         if (idx === 0) continue;
+        const ci = row * KCOLS + col;
         const dx = col - cxC + 0.5;
         const dy = row - cyC + 0.5;
-        const red = dx * dx + dy * dy < redR * redR;
-        c.drawImage(atlas, idx * AS, red ? AS : 0, AS, AS, col * CELL, row * CELL, CELL, CELL);
+        const atlasRow =
+          dx * dx + dy * dy < redR * redR ? ROW_RED : energy === 0 && !calm ? ROW_INK : calm ? ROW_INK : hueRow(ci, lum, t, p, energy, kick);
+        const x = (((col + shift) % KCOLS) + KCOLS) % KCOLS;
+        c.drawImage(atlas, idx * AS, atlasRow * AS, AS, AS, x * CELL, row * CELL, CELL, CELL);
       }
     }
     // the centre always holds the beat, even over black
-    c.drawImage(atlas, (n - 1) * AS, AS, AS, AS, (KCOLS / 2 - 1) * CELL, (KROWS / 2 - 1) * CELL, CELL, CELL);
+    c.drawImage(atlas, (n - 1) * AS, ROW_RED * AS, AS, AS, (KCOLS / 2 - 1) * CELL, (KROWS / 2 - 1) * CELL, CELL, CELL);
   }
 
-  return { draw, fold };
+  return { draw, fold, palette: PALETTES[palette] };
 }
 
 const FAMILY_NAMES = ["TUNNEL", "ROSE", "LATTICE", "PHYLLO", "ORBITS"];
@@ -962,14 +1086,17 @@ function Trip({ sheet, tab, onDone, reduceMotion }) {
       const now = ctx.currentTime;
       const t = Math.max(0, now - trip.state.startAt);
       const p = reduceMotion ? trip.pulse(now) * 0.35 : trip.pulse(now);
-      const drop = !reduceMotion && trip.state.bar >= 17 && trip.state.bar < 28;
-      vis.draw(c, t, p, drop);
+      const bar = trip.state.bar;
+      const energy = trip.state.energyAt(bar);
+      // which eighth of the bar we are on, during a strobe burst
+      const strobe = trip.state.strobeAt(bar) ? Math.floor((t / trip.state.step) % 16 / 2) : -1;
+      vis.draw(c, t, p, energy, strobe, reduceMotion);
       if (ts - hudAt > 250) {
         hudAt = ts;
         setHud({
           bpm: trip.state.bpm,
           bar: Math.min(trip.state.bars, trip.state.bar + 1),
-          fam: FAMILY_NAMES[trip.state.family],
+          fam: `${FAMILY_NAMES[trip.state.family]} · ${vis.palette}`,
           left: Math.max(0, trip.state.totalSec - t),
         });
       }
@@ -1032,7 +1159,7 @@ function Trip({ sheet, tab, onDone, reduceMotion }) {
         TAB {pad4(tab)} · SHEET {pad4(sheet)}
       </div>
       <div className="thTripHud thTripHudR">
-        {hud.bpm} BPM · {hud.fam} · BAR {String(hud.bar).padStart(2, "0")}/32
+        {hud.bpm} BPM · {hud.fam} · BAR {String(hud.bar).padStart(2, "0")}/96
       </div>
       <div className="thTripHud thTripHudB">
         {mmss(hud.left * 1000)} <span className="thDim">· esc spits it out</span>
@@ -1326,6 +1453,7 @@ export default function ThumbedPage() {
             </button>
           )}
           <div className="thFine">one per sheet. the clock does not wait.</div>
+          <div className="thWarn">contains strobing light. not for photosensitive eyes.</div>
           <Link href="/" className="thHome" onClick={(e) => e.stopPropagation()}>
             ⟵ refoldered.com_
           </Link>
