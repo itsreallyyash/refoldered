@@ -900,15 +900,34 @@ function GroundCanvas() {
        Every mark is built in layers: a wide diffuse halo where it wicked
        along the fibres, a body of overlapping soft dabs, a darker core
        where it pooled and dried, and a feathered rim. Gravity then pulls
-       runs down the sheet, and impact throws spray. */
+       runs down the sheet, and impact throws spray.
+
+       The softness is paid for once. A canvas filter is applied per draw
+       call, and each call re-rasters the whole sheet through it: seven
+       hundred blurred dabs was nine seconds of a frozen tab before the
+       gate had even appeared. So every soft mark is drawn crisp onto one
+       of three layers, grouped by how soft it is, and each layer is
+       blurred a single time as it is laid onto the sheet. The crisp marks
+       go on a fourth layer so they land, as they must, over the soft. */
     const RED_CORE = "138,12,14";
     const RED_BODY = "104,9,11";
     const RED_WASH = "132,28,28";
     const RED_DARK = "62,4,6";
 
+    const layer = (blur) => {
+      const cv = document.createElement("canvas");
+      cv.width = W;
+      cv.height = H;
+      return { cv, x: cv.getContext("2d"), blur };
+    };
+    const HALO = layer(9); // the wick out along the fibres
+    const WICK = layer(2.6); // soak beside a run, under a heavy drop
+    const SOFT = layer(1.8); // the body and its feathered rim
+    const CRISP = layer(0); // cores, dried rings, droplets, trails
+
     // an organic outline: radius modulated by several noise octaves
-    const blobPath = (cx, cy, rad, seed, squash) => {
-      c.beginPath();
+    const blobPath = (x, cx, cy, rad, seed, squash) => {
+      x.beginPath();
       const N = 96;
       for (let i = 0; i <= N; i++) {
         const t = (i / N) * Math.PI * 2;
@@ -918,12 +937,12 @@ function GroundCanvas() {
           0.16 * Math.sin(t * 5 + hash2(seed, 2) * 6) +
           0.1 * Math.sin(t * 11 + hash2(seed, 3) * 6) +
           0.06 * Math.sin(t * 19 + hash2(seed, 4) * 6);
-        const x = cx + Math.cos(t) * rad * n;
-        const y = cy + Math.sin(t) * rad * n * squash;
-        if (i === 0) c.moveTo(x, y);
-        else c.lineTo(x, y);
+        const px = cx + Math.cos(t) * rad * n;
+        const py = cy + Math.sin(t) * rad * n * squash;
+        if (i === 0) x.moveTo(px, py);
+        else x.lineTo(px, py);
       }
-      c.closePath();
+      x.closePath();
     };
 
     // A mark that has soaked in but still has a body. The trap here is
@@ -932,32 +951,24 @@ function GroundCanvas() {
     // only to the halo wicking out along the fibres.
     const bleed = (cx, cy, rad, seed, squash = 1, strength = 1) => {
       // 1. wicking halo — tight, not a cloud
-      c.save();
-      c.filter = "blur(9px)";
-      c.fillStyle = `rgba(${RED_WASH},${0.17 * strength})`;
-      blobPath(cx, cy, rad * 1.12, seed + 71, squash);
-      c.fill();
-      c.restore();
+      HALO.x.fillStyle = `rgba(${RED_WASH},${0.17 * strength})`;
+      blobPath(HALO.x, cx, cy, rad * 1.12, seed + 71, squash);
+      HALO.x.fill();
 
       // 2. body — only lightly softened
-      c.save();
-      c.filter = "blur(2px)";
-      c.fillStyle = `rgba(${RED_BODY},${0.86 * strength})`;
-      blobPath(cx, cy, rad, seed, squash);
-      c.fill();
-      c.restore();
+      SOFT.x.fillStyle = `rgba(${RED_BODY},${0.86 * strength})`;
+      blobPath(SOFT.x, cx, cy, rad, seed, squash);
+      SOFT.x.fill();
 
       // 3. feathered rim: dabs pushed out along the edge, so the boundary
       //    breaks into fingers instead of reading as an outline
-      c.save();
-      c.filter = "blur(1.6px)";
+      SOFT.x.fillStyle = `rgba(${RED_BODY},${0.6 * strength})`;
       for (let k = 0; k < 52; k++) {
         const t = hash2(seed * 5 + k, 13) * Math.PI * 2;
         const push = 0.84 + hash2(seed * 7 + k, 17) * 0.4;
         const r2 = rad * (0.09 + hash2(seed * 11 + k, 19) * 0.2);
-        c.fillStyle = `rgba(${RED_BODY},${0.6 * strength})`;
-        c.beginPath();
-        c.ellipse(
+        SOFT.x.beginPath();
+        SOFT.x.ellipse(
           cx + Math.cos(t) * rad * push,
           cy + Math.sin(t) * rad * push * squash,
           r2,
@@ -966,28 +977,27 @@ function GroundCanvas() {
           0,
           Math.PI * 2
         );
-        c.fill();
+        SOFT.x.fill();
       }
-      c.restore();
 
       // 4. core — sharp-edged and thick, where it pooled and dried
-      c.filter = "none";
-      c.fillStyle = `rgba(${RED_CORE},${0.95 * strength})`;
-      blobPath(cx, cy, rad * 0.62, seed + 5, squash);
-      c.fill();
+      const s = CRISP.x;
+      s.fillStyle = `rgba(${RED_CORE},${0.95 * strength})`;
+      blobPath(s, cx, cy, rad * 0.62, seed + 5, squash);
+      s.fill();
       // 5. the darkest ring, where the pool dried against its own edge
-      c.strokeStyle = `rgba(${RED_DARK},${0.5 * strength})`;
-      c.lineWidth = 2.2;
-      c.stroke();
+      s.strokeStyle = `rgba(${RED_DARK},${0.5 * strength})`;
+      s.lineWidth = 2.2;
+      s.stroke();
       // 6. sharp satellite drops around the mark — these are what make it
       //    read as blood rather than a stain
+      s.fillStyle = `rgba(${RED_CORE},${0.8 * strength})`;
       for (let k = 0; k < 18; k++) {
         const t = hash2(seed * 13 + k, 27) * Math.PI * 2;
         const dd = rad * (1.1 + hash2(seed * 3 + k, 31) * 0.7);
         const r3 = rad * (0.03 + Math.pow(hash2(k, 33), 2) * 0.13);
-        c.fillStyle = `rgba(${RED_CORE},${0.8 * strength})`;
-        c.beginPath();
-        c.ellipse(
+        s.beginPath();
+        s.ellipse(
           cx + Math.cos(t) * dd,
           cy + Math.sin(t) * dd * squash,
           r3,
@@ -996,7 +1006,7 @@ function GroundCanvas() {
           0,
           Math.PI * 2
         );
-        c.fill();
+        s.fill();
       }
     };
 
@@ -1012,34 +1022,31 @@ function GroundCanvas() {
         pts.push([x, y0 + t * len, w0 * (1 - t * 0.72) * (0.75 + hash2(seed + i, 31) * 0.45)]);
       }
       // soft wick either side of the trail
-      c.save();
-      c.filter = "blur(3px)";
-      c.fillStyle = `rgba(${RED_WASH},0.3)`;
+      WICK.x.fillStyle = `rgba(${RED_WASH},0.3)`;
       pts.forEach(([px, py, w]) => {
-        c.beginPath();
-        c.ellipse(px, py, w * 1.7, w * 2, 0, 0, Math.PI * 2);
-        c.fill();
+        WICK.x.beginPath();
+        WICK.x.ellipse(px, py, w * 1.7, w * 2, 0, 0, Math.PI * 2);
+        WICK.x.fill();
       });
-      c.restore();
       // the trail itself, crisp
-      c.filter = "none";
+      const s = CRISP.x;
       pts.forEach(([px, py, w], i) => {
         if (w <= 0.2) return;
-        c.fillStyle = `rgba(${RED_CORE},${0.9 - (i / steps) * 0.3})`;
-        c.beginPath();
-        c.ellipse(px, py, w, w * 1.6, 0, 0, Math.PI * 2);
-        c.fill();
+        s.fillStyle = `rgba(${RED_CORE},${0.9 - (i / steps) * 0.3})`;
+        s.beginPath();
+        s.ellipse(px, py, w, w * 1.6, 0, 0, Math.PI * 2);
+        s.fill();
       });
       // the bead at the end, where surface tension held it
       const [ex2, ey2] = pts[pts.length - 1];
-      c.fillStyle = `rgba(${RED_CORE},0.95)`;
-      c.beginPath();
-      c.ellipse(ex2, ey2, w0 * 0.9, w0 * 1.35, 0, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = `rgba(${RED_DARK},0.5)`;
-      c.beginPath();
-      c.ellipse(ex2, ey2 + w0 * 0.4, w0 * 0.5, w0 * 0.7, 0, 0, Math.PI * 2);
-      c.fill();
+      s.fillStyle = `rgba(${RED_CORE},0.95)`;
+      s.beginPath();
+      s.ellipse(ex2, ey2, w0 * 0.9, w0 * 1.35, 0, 0, Math.PI * 2);
+      s.fill();
+      s.fillStyle = `rgba(${RED_DARK},0.5)`;
+      s.beginPath();
+      s.ellipse(ex2, ey2 + w0 * 0.4, w0 * 0.5, w0 * 0.7, 0, 0, Math.PI * 2);
+      s.fill();
     };
 
     // impact spray: droplets thrown along an axis, stretched by travel,
@@ -1054,31 +1061,32 @@ function GroundCanvas() {
         const y = oy + Math.sin(a) * d;
         const near = 1 - d / maxD;
         const s = Math.pow(hash2(k, 57), 1.8) * 6.5 * near + 0.5;
-        c.save();
-        c.translate(x, y);
-        c.rotate(a);
         // faint soak around the bigger drops
         if (s > 1.6) {
-          c.save();
-          c.filter = "blur(2.5px)";
-          c.fillStyle = `rgba(${RED_WASH},0.3)`;
-          c.beginPath();
-          c.ellipse(0, 0, s * 2.4, s * 1.8, 0, 0, Math.PI * 2);
-          c.fill();
-          c.restore();
+          WICK.x.save();
+          WICK.x.translate(x, y);
+          WICK.x.rotate(a);
+          WICK.x.fillStyle = `rgba(${RED_WASH},0.3)`;
+          WICK.x.beginPath();
+          WICK.x.ellipse(0, 0, s * 2.4, s * 1.8, 0, 0, Math.PI * 2);
+          WICK.x.fill();
+          WICK.x.restore();
         }
-        c.filter = "none";
-        c.fillStyle = `rgba(${RED_CORE},${0.55 + near * 0.42})`;
-        c.beginPath();
-        c.ellipse(0, 0, s * (1 + (d / maxD) * 1.5), s * 0.72, 0, 0, Math.PI * 2);
-        c.fill();
+        const cr = CRISP.x;
+        cr.save();
+        cr.translate(x, y);
+        cr.rotate(a);
+        cr.fillStyle = `rgba(${RED_CORE},${0.55 + near * 0.42})`;
+        cr.beginPath();
+        cr.ellipse(0, 0, s * (1 + (d / maxD) * 1.5), s * 0.72, 0, 0, Math.PI * 2);
+        cr.fill();
         // the little satellite that trails a fast droplet
         if (hash2(k, 61) > 0.68) {
-          c.beginPath();
-          c.arc(-s * 3.4, 0, s * 0.4, 0, Math.PI * 2);
-          c.fill();
+          cr.beginPath();
+          cr.arc(-s * 3.4, 0, s * 0.4, 0, Math.PI * 2);
+          cr.fill();
         }
-        c.restore();
+        cr.restore();
       }
     };
 
@@ -1126,6 +1134,16 @@ function GroundCanvas() {
       bleed(x, y, r, seed, 1, 0.9);
       if (hash2(seed, 99) > 0.4) run(x, y + r * 0.6, 14 + hash2(seed, 101) * 40, seed + 60, 1.4);
       spray(x, y, hash2(seed, 103) * Math.PI * 2, 2.4, 26, seed + 70, 70);
+    });
+
+    /* lay the layers onto the sheet, softest first, each blurred once.
+       Where the canvas cannot filter at all the marks land crisp, which
+       is a harder-edged stain rather than a broken page. */
+    [HALO, WICK, SOFT, CRISP].forEach(({ cv, blur }) => {
+      c.save();
+      if (blur && "filter" in c) c.filter = `blur(${blur}px)`;
+      c.drawImage(cv, 0, 0, W, H);
+      c.restore();
     });
   }, []);
 
