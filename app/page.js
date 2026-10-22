@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import ArchiveAudio from "./components/ArchiveAudio";
+import ArchiveAudio, { RECORD_SLOTS } from "./components/ArchiveAudio";
 
 const CRYPTIC = [
   "music piercing through my aorta",
@@ -39,17 +39,30 @@ const TOWER = {
   discR: 48,
 };
 
+/* The six discs in the changer. Disc 01 is side b — the comic — and the
+   five below it are the record slots the archive pool is dealt onto
+   (see RECORD_SLOTS). The covers are the sleeves the discs sit in, not
+   what plays. */
 const ALBUMS = [
-  { key: "deftones", url: "/rave" }, // disc 01 opens SIDE B, the comic
-  { key: "acdc", url: "/albums/acdc" },
-  { key: "aphex", url: "/albums/aphex" },
-  { key: "acid", url: "/albums/acid" },
-  { key: "floyd", url: "/albums/floyd" },
-  { key: "lcd", url: "/albums/lcd" },
+  { key: "deftones", url: "/rave", hint: "01 · SIDE B · UNKNOWN LOVERZ · CLICK TO OPEN" },
+  { key: "acdc" },
+  { key: "aphex" },
+  { key: "acid" },
+  { key: "floyd" },
+  { key: "lcd" },
 ];
+const SLOT_COUNT = ALBUMS.length;
+const RECORD_HINT = "LOAD THIS RECORD · THE HEAD MOVES TO IT";
 
-const DISCS = ["PROJECTS", "DATA_LOG", "HISTORY", "CONTACT", "RECALL", "FRAGMENTS"];
-const SLOT_COUNT = DISCS.length;
+/* The first time the cursor finds each object it is told, once, what the
+   object does. After that the object only whispers. */
+const HINTS = {
+  coin: "WIND IT · TWELVE CLICKS AND IT REMEMBERS THE WORLD",
+  scope: "KNOB SETS VOLUME · POWER CUTS THE BEAM · → SKIPS THE RECORD",
+  pile: "DRAG THE CARD ACROSS THE PILLS · SHAKE IT TWICE TO DROP IT",
+  lips: "SIDE B IS A WOUND · CLICK TO OPEN IT",
+  flyer: "THE FLYER · IT GOES TO THE INSTAGRAM",
+};
 
 // Math.cos/sin/atan2 are not required by the spec to be correctly rounded,
 // so Node and the browser can disagree in the last ulp — enough for React
@@ -192,7 +205,8 @@ function PillCanvas() {
     const off = document.createElement("canvas");
     off.width = W;
     off.height = H;
-    const octx = off.getContext("2d");
+    // read back every frame for the halftone pass
+    const octx = off.getContext("2d", { willReadFrequently: true });
 
     const cx = W / 2;
     const cy = H / 2;
@@ -374,10 +388,18 @@ function PillCanvas() {
     let raf;
     let last = 0;
 
-    // wind it up; past 12 clicks the blur collapses into the globe
+    // wind it up; past 12 clicks the blur collapses into the globe.
+    // Click the globe and it flips back to the coin — a slow start, so
+    // it can be wound up all over again.
     function onClick() {
       const st = spinRef.current;
-      if (st.mode !== "coin") return;
+      if (st.mode === "globe") {
+        st.mode = "coin";
+        st.clicks = 0;
+        st.speed = 1;
+        last = 0;
+        return;
+      }
       st.clicks += 1;
       st.speed = Math.min(60, st.speed * 1.35);
       if (st.clicks >= 12) {
@@ -1522,8 +1544,12 @@ function AlbumArtCanvas({ spin }) {
   return <canvas ref={ref} className="albumArtCanvas" />;
 }
 
-/* ================= CD CHANGER (BeoSound-style wall unit) ================= */
-function TowerSVG({ active, haunt, onHover }) {
+/* ================= CD CHANGER (BeoSound-style wall unit) =================
+   A changer, not a menu. The reader head sits on whichever record is
+   playing; click a record disc and the head moves to it and that record
+   plays; let one end and the head steps down to the next on its own.
+   Disc 01 is the one exception — it is side b, and it opens the book. */
+function TowerSVG({ active, haunt, onLoad }) {
   const { discCx, discCy0, discDy, discR } = TOWER;
   return (
     <svg className="towerSvg" viewBox={`0 0 ${TOWER.w} ${TOWER.h}`}>
@@ -1537,40 +1563,40 @@ function TowerSVG({ active, haunt, onHover }) {
       {/* status LEDs in the gap */}
       <circle cx="104" cy="330" r="2.4" className="ledDot" />
       <circle cx="104" cy="342" r="2.4" className="ledDot" />
-      {/* discs — ASCII covers painted by the art canvas; each is a link */}
-      {DISCS.map((_, k) => {
+      {/* discs — ASCII covers painted by the art canvas */}
+      {ALBUMS.map((album, k) => {
         const cy = discCy0 + k * discDy;
         const isActive = k === active;
-        const h = haunt ? haunt() : {};
-        return (
-          <a
-            key={k}
-            href={ALBUMS[k].url}
-            {...h}
-            onMouseEnter={(e) => {
-              h.onMouseEnter?.(e);
-              onHover?.(k); // engaging a disc is sticky — it keeps playing
-            }}
-          >
-            <g className={isActive ? "towerDisc active" : "towerDisc"}>
-              <circle cx={discCx} cy={cy} r={discR} className="discOuter" />
-              <circle cx={discCx} cy={cy} r="8" className="discHubRing" />
-              <circle cx={discCx} cy={cy} r="2.6" className="discHubDot" />
-              {isActive && (
-                <g className="readerHead">
-                  <rect x="116" y={cy - 5} width="152" height="10" rx="3" className="readerBar" />
-                  <circle cx={discCx} cy={cy} r="13" className="readerClamp" />
-                  <path
-                    d={`M ${q3(discCx + (discR + 3) * Math.cos(-1.05))},${q3(cy + (discR + 3) * Math.sin(-1.05))} A ${discR + 3},${discR + 3} 0 0 1 ${q3(discCx + (discR + 3) * Math.cos(-0.25))},${q3(cy + (discR + 3) * Math.sin(-0.25))}`}
-                    className="readerArc"
-                  />
-                </g>
-              )}
-              <text x="258" y={cy + 3} className="discLabel">
-                {String(k + 1).padStart(2, "0")}
-              </text>
-            </g>
+        const isSideB = !!album.url;
+        const h = haunt ? haunt("", isSideB ? album.hint : RECORD_HINT, "disc" + k) : {};
+        const disc = (
+          <g className={`towerDisc${isActive ? " active" : ""}${isSideB ? " sideB" : ""}`}>
+            <circle cx={discCx} cy={cy} r={discR} className="discOuter" />
+            <circle cx={discCx} cy={cy} r="8" className="discHubRing" />
+            <circle cx={discCx} cy={cy} r="2.6" className="discHubDot" />
+            {isActive && (
+              <g className="readerHead">
+                <rect x="116" y={cy - 5} width="152" height="10" rx="3" className="readerBar" />
+                <circle cx={discCx} cy={cy} r="13" className="readerClamp" />
+                <path
+                  d={`M ${q3(discCx + (discR + 3) * Math.cos(-1.05))},${q3(cy + (discR + 3) * Math.sin(-1.05))} A ${discR + 3},${discR + 3} 0 0 1 ${q3(discCx + (discR + 3) * Math.cos(-0.25))},${q3(cy + (discR + 3) * Math.sin(-0.25))}`}
+                  className="readerArc"
+                />
+              </g>
+            )}
+            <text x="258" y={cy + 3} className="discLabel">
+              {String(k + 1).padStart(2, "0")}
+            </text>
+          </g>
+        );
+        return isSideB ? (
+          <a key={k} href={album.url} {...h}>
+            {disc}
           </a>
+        ) : (
+          <g key={k} {...h} onClick={() => onLoad?.(k - 1)}>
+            {disc}
+          </g>
         );
       })}
     </svg>
@@ -2188,13 +2214,16 @@ function AsciiLips() {
 
   useEffect(draw, [hot]);
 
+  // the cut is the way in: side b is a wound, and the lips open it
   return (
-    <canvas
-      ref={ref}
-      className={hot ? "lipsCanvas hot" : "lipsCanvas"}
-      onMouseEnter={() => setHot(true)}
-      onMouseLeave={() => setHot(false)}
-    />
+    <a href="/rave" className="lipsLink">
+      <canvas
+        ref={ref}
+        className={hot ? "lipsCanvas hot" : "lipsCanvas"}
+        onMouseEnter={() => setHot(true)}
+        onMouseLeave={() => setHot(false)}
+      />
+    </a>
   );
 }
 
@@ -2350,7 +2379,8 @@ function PillsBreak() {
     const off = document.createElement("canvas");
     off.width = PILE.w;
     off.height = PILE.h;
-    const g = off.getContext("2d");
+    // read back on every cut for the halftone pass
+    const g = off.getContext("2d", { willReadFrequently: true });
     const layer = document.createElement("canvas");
     layer.width = PILE.w * DPR;
     layer.height = PILE.h * DPR;
@@ -2942,7 +2972,7 @@ function PillsBreak() {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerdown", onMove);
+      window.removeEventListener("pointerdown", onDown);
       document.removeEventListener("pointerleave", onOut);
     };
   }, []);
@@ -2958,12 +2988,15 @@ export default function Home() {
      the click handler, which is most of why the gate felt like a hang. */
   const rootRef = useRef(null);
   const enteredRef = useRef(false);
-  // the engaged disc: 01 to start, and hovering another moves the reader
-  // head to it for good — it keeps playing after the cursor leaves
-  const [activeSlot, setActiveSlot] = useState(0);
+  // the disc under the reader head — the record that is playing. The
+  // audio drives it: it moves when a disc is loaded and when a record
+  // ends. Disc 02 to start; 01 is side b, never a record.
+  const [activeSlot, setActiveSlot] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [trackTitle, setTrackTitle] = useState("");
   const [hauntTip, setHauntTip] = useState(null);
+  // which objects have already explained themselves
+  const seenRef = useRef(new Set());
   // real scope readouts, measured off the analyser buffer
   const [meas, setMeas] = useState({ vpp: "--.-", vrms: "--.-", freq: "---" });
   // scope front panel
@@ -3012,16 +3045,39 @@ export default function Home() {
     audioCtlRef.current?.start();
   }
 
-  // hover haunt: every element highlights and whispers a random line
-  function haunt(base = "") {
+  // the front panel, from the keyboard: → deals the next record, space
+  // is the power switch. Only once the reader is through the gate.
+  useEffect(() => {
+    function onKey(e) {
+      if (!enteredRef.current || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        audioCtlRef.current?.next();
+      } else if (e.key === " ") {
+        e.preventDefault();
+        togglePower();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // hover haunt: every element highlights and whispers. The first time
+  // an object with a hint is found it says what it does; from then on it
+  // only ever says one of the lines.
+  function haunt(base = "", hint = null, id = base) {
     return {
       className: `${base} haunt`.trim(),
-      onMouseEnter: (e) =>
+      onMouseEnter: (e) => {
+        const explain = hint && !seenRef.current.has(id);
+        if (explain) seenRef.current.add(id);
         setHauntTip({
           x: e.clientX,
           y: e.clientY,
-          text: CRYPTIC[Math.floor(Math.random() * CRYPTIC.length)],
-        }),
+          hint: !!explain,
+          text: explain ? hint : CRYPTIC[Math.floor(Math.random() * CRYPTIC.length)],
+        });
+      },
       onMouseMove: (e) =>
         setHauntTip((h) => (h ? { ...h, x: e.clientX, y: e.clientY } : h)),
       onMouseLeave: () => setHauntTip(null),
@@ -3036,6 +3092,7 @@ export default function Home() {
       <div className="gate" onClick={enter}>
         <div className="gateGlyph">&#9678;</div>
         <div className="gateText">click to enter</div>
+        <div className="gateSub">sound on</div>
       </div>
 
       <div className="posterViewport">
@@ -3049,12 +3106,16 @@ export default function Home() {
 
           <div className="towerWrap">
             <AlbumArtCanvas spin={activeSlot} />
-            <TowerSVG active={activeSlot} haunt={haunt} onHover={setActiveSlot} />
+            <TowerSVG
+              active={activeSlot}
+              haunt={haunt}
+              onLoad={(slot) => audioCtlRef.current?.loadSlot(slot)}
+            />
           </div>
 
           <div {...haunt("flipLabel")}>[&nbsp;&nbsp;FLIP TO REMEMBER&nbsp;&nbsp;&nbsp;]</div>
 
-          <div {...haunt("coinWrap")}>
+          <div {...haunt("coinWrap", HINTS.coin)}>
             <PillCanvas />
           </div>
 
@@ -3065,7 +3126,7 @@ export default function Home() {
             <div className="wordDots">...</div>
           </div>
 
-          <div {...haunt("scopeWrap")}>
+          <div {...haunt("scopeWrap", HINTS.scope)}>
             <ScopeSVG
               playing={playing}
               vpp={meas.vpp}
@@ -3099,12 +3160,16 @@ export default function Home() {
           {/* spans the whole sheet: the card is a tool you carry across
               it, and powder ends up wherever you shove it */}
           <PillsBreak />
+          {/* the pile itself cannot be hovered — its canvas lets the
+              cursor through — so this sits under it, the size of the
+              pile, and does the whispering for it */}
+          <div {...haunt("pileHaunt", HINTS.pile)} />
 
-          <div className="flyerPos">
+          <div {...haunt("flyerPos", HINTS.flyer)}>
             <RaveFlyer />
           </div>
 
-          <div {...haunt("lipsPos")}>
+          <div {...haunt("lipsPos", HINTS.lips)}>
             <AsciiLips />
           </div>
 
@@ -3132,7 +3197,7 @@ export default function Home() {
 
       {hauntTip && (
         <div
-          className="hauntTip"
+          className={hauntTip.hint ? "hauntTip hint" : "hauntTip"}
           style={{ left: hauntTip.x + 16, top: hauntTip.y + 18 }}
         >
           {hauntTip.text}
@@ -3143,6 +3208,7 @@ export default function Home() {
         controlRef={audioCtlRef}
         analyserRef={analyserRef}
         onTrackChange={setTrackTitle}
+        onSlotChange={(slot) => setActiveSlot(1 + (slot % RECORD_SLOTS))}
         playing={playing}
         setPlaying={setPlaying}
         volume={volume}

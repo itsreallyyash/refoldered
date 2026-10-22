@@ -9,7 +9,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata = {
   title: "REFOLDERED",
-  description: "refoldered",
+  description: "a record of a night. side a: the objects. side b: unknown loverz.",
   robots: "noindex, nofollow",
 };
 

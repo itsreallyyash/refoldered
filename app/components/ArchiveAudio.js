@@ -25,6 +25,14 @@ const ITEMS = [
   "user48736353001",
 ];
 
+/* The changer holds five records at a time — discs 02 to 06; disc 01 is
+   side b, not a record. The shuffled pool is dealt onto those slots in
+   fives: the running index never wraps, and the slot a record sits in is
+   simply index mod five. Load a disc and the index jumps to that slot of
+   the current five; let a record end and it steps to the next disc, so
+   the reader head walks down the changer on its own. */
+export const RECORD_SLOTS = 5;
+
 // "017 - 0125 - Tha Milk Float.mp3" → "Tha Milk Float"
 // "1 Chink 101-187925716.mp3"       → "Chink 101"
 function cleanTitle(name) {
@@ -48,6 +56,7 @@ export default function ArchiveAudio({
   controlRef,
   analyserRef,
   onTrackChange,
+  onSlotChange,
   playing,
   setPlaying,
   volume = 0.8,
@@ -60,6 +69,8 @@ export default function ArchiveAudio({
   const errorStreakRef = useRef(0);
   const onTrackChangeRef = useRef(onTrackChange);
   onTrackChangeRef.current = onTrackChange;
+  const onSlotChangeRef = useRef(onSlotChange);
+  onSlotChangeRef.current = onSlotChange;
   const [blocked, setBlocked] = useState(false);
 
   // the scope's volume knob drives this
@@ -79,10 +90,12 @@ export default function ArchiveAudio({
     let retriedRef = false;
 
     const load = (i, autoplay, cacheBust) => {
-      const t = listRef.current[i];
-      if (!t) return;
+      const list = listRef.current;
+      if (!list.length) return;
+      const t = list[i % list.length];
       audio.src = cacheBust ? t.url + "?r=" + Date.now() : t.url;
       onTrackChangeRef.current?.(t.title);
+      onSlotChangeRef.current?.(i % RECORD_SLOTS);
       if (autoplay) {
         audio
           .play()
@@ -97,7 +110,7 @@ export default function ArchiveAudio({
     const next = () => {
       if (!listRef.current.length) return;
       retriedRef = false;
-      idxRef.current = (idxRef.current + 1) % listRef.current.length;
+      idxRef.current += 1;
       load(idxRef.current, true);
     };
 
@@ -122,29 +135,53 @@ export default function ArchiveAudio({
       }
     });
 
+    // the graph is built on the first user gesture, whichever one it is
+    const ensureCtx = () => {
+      if (ctxRef.current) return;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const srcNode = ctx.createMediaElementSource(audio);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.5;
+      srcNode.connect(analyser);
+      analyser.connect(ctx.destination);
+      ctxRef.current = ctx;
+      if (analyserRef) analyserRef.current = analyser;
+    };
+
     const start = () => {
       if (!listRef.current.length) {
-        pendingStartRef.current = true; // metadata still in flight
+        // metadata still in flight — the scope says so until it lands
+        pendingStartRef.current = true;
+        onTrackChangeRef.current?.("cueing");
         return;
       }
-      if (!ctxRef.current) {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        const ctx = new Ctx();
-        const srcNode = ctx.createMediaElementSource(audio);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.5;
-        srcNode.connect(analyser);
-        analyser.connect(ctx.destination);
-        ctxRef.current = ctx;
-        if (analyserRef) analyserRef.current = analyser;
-      }
+      ensureCtx();
       ctxRef.current.resume();
       if (audio.paused) load(idxRef.current, true);
     };
+
+    // pick a disc: jump to that slot within the current five
+    const loadSlot = (slot) => {
+      const base = Math.floor(idxRef.current / RECORD_SLOTS) * RECORD_SLOTS;
+      idxRef.current = base + slot;
+      retriedRef = false;
+      if (!listRef.current.length) {
+        pendingStartRef.current = true;
+        onTrackChangeRef.current?.("cueing");
+        return;
+      }
+      ensureCtx();
+      ctxRef.current.resume();
+      load(idxRef.current, true);
+    };
+
     if (controlRef)
       controlRef.current = {
         start,
+        next,
+        loadSlot,
         // scope front-panel controls
         setPower: (on) => {
           if (on) {
@@ -172,7 +209,10 @@ export default function ArchiveAudio({
     ).then((results) => {
       if (cancelled) return;
       const pool = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-      if (!pool.length) return;
+      if (!pool.length) {
+        onTrackChangeRef.current?.("archive unreachable");
+        return;
+      }
       const seen = new Set();
       const unique = pool.filter((t) => {
         const key = t.title.toLowerCase().replace(/[^a-z0-9]/g, "");

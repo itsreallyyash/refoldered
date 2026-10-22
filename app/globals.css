@@ -50,6 +50,18 @@ body {
   color: var(--ink-mid);
   text-transform: uppercase;
 }
+/* it is going to make a noise; say so before it does */
+.gateSub {
+  margin-top: 0.7rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.4em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.gateSub::before {
+  content: "▸ ";
+  color: var(--red);
+}
 @keyframes pulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
@@ -110,8 +122,18 @@ body {
 .flyerPos,
 .lipsPos,
 .chemPos,
+.pileHaunt,
 .siteTitle {
   z-index: 2;
+}
+/* the footprint of the pill pile (PILE in PillsBreak), so the pile can
+   be hovered even though its own canvas lets the cursor through */
+.pileHaunt {
+  position: absolute;
+  left: 396px;
+  top: 806px;
+  width: 246px;
+  height: 146px;
 }
 
 /* ---------- GROUND & FILM ---------- */
@@ -205,6 +227,12 @@ body {
 }
 .towerDisc.active .discLabel {
   fill: var(--red);
+}
+/* disc 01 is not a record; its number is marked so it reads as the odd
+   one out before anyone hovers it */
+.towerDisc.sideB .discLabel {
+  fill: var(--red);
+  font-weight: 600;
 }
 .readerBar {
   fill: rgba(240, 238, 230, 0.06);
@@ -475,6 +503,10 @@ body {
   top: 716px;
   animation: floatLips 9.5s ease-in-out infinite 1.4s;
 }
+.lipsLink {
+  display: block;
+  line-height: 0;
+}
 .lipsCanvas {
   display: block;
   cursor: pointer;
@@ -597,11 +629,14 @@ html[data-letterboxed="1"] .deviceNag {
   outline-offset: 7px;
   filter: brightness(1.35);
 }
-svg a.haunt {
+/* discs: the link to side b and the record slots behave alike */
+svg a.haunt,
+svg g.haunt {
   cursor: pointer;
   outline: none;
 }
-svg a.haunt:hover .discOuter {
+svg a.haunt:hover .discOuter,
+svg g.haunt:hover .discOuter {
   stroke: var(--red);
   stroke-width: 2;
 }
@@ -626,6 +661,24 @@ svg a.haunt:hover .discOuter {
 .hauntTip::before {
   content: "▸ ";
   color: var(--red);
+}
+/* an explanation, not a whisper: the one time the box is drawn solid */
+.hauntTip.hint {
+  border-style: solid;
+  color: #fff;
+}
+
+/* the drift and the blink are mood, not information; anyone who asked
+   for less motion gets a sheet that holds still */
+@media (prefers-reduced-motion: reduce) {
+  .lipsPos,
+  .gateGlyph,
+  .nagCaret {
+    animation: none;
+  }
+  .lipsPos {
+    transform: rotate(28.5deg);
+  }
 }
 
 /* ---------- TOWER: BeoSound details ---------- */
