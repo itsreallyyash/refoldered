@@ -1263,3 +1263,235 @@ svg g.haunt:hover .discOuter {
   width: 2px;
   height: 2px;
 }
+
+/* ============================================================
+   /thumbed — the sheet, disc 03
+   ============================================================ */
+.thRoot {
+  position: fixed;
+  inset: 0;
+  background: #050505;
+  overflow: hidden;
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+.thStage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: #000;
+}
+/* over the sheet the pointer is a thumb, drawn on the overlay */
+.thStage.thLive {
+  cursor: none;
+}
+.thSheet,
+.thOver {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.thOver {
+  pointer-events: none;
+}
+.thHud {
+  position: absolute;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.thHudL { left: 120px; top: 44px; }
+.thHudR { right: 120px; top: 44px; }
+.thHudB {
+  left: 50%;
+  bottom: 38px;
+  transform: translateX(-50%);
+  text-transform: none;
+  letter-spacing: 0.2em;
+  color: var(--ink-dim);
+}
+.thRed { color: var(--red); }
+.thWhisper {
+  position: absolute;
+  left: 50%;
+  top: 44px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--ink);
+  background: rgba(5, 5, 4, 0.92);
+  border: 1px dashed var(--red);
+  padding: 0.5rem 0.8rem;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.thWhisper::before {
+  content: "▸ ";
+  color: var(--red);
+}
+
+/* the trip takes the whole stage */
+.thTrip {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 10;
+  cursor: none;
+  animation: thIn 0.4s ease both;
+}
+@keyframes thIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.thTripCanvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.thTripHud {
+  position: absolute;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.thTripHudL { left: 46px; top: 36px; }
+.thTripHudR { right: 46px; top: 36px; }
+.thTripHudB {
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  color: var(--ink);
+}
+.thDim {
+  color: var(--ink-dim);
+  text-transform: none;
+  letter-spacing: 0.2em;
+}
+
+/* the cover: same stance as the book's */
+.thCover {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #050505;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.3rem;
+  cursor: pointer;
+  animation: thIn 0.65s ease both;
+}
+.thMark {
+  position: absolute;
+  top: 1.4rem;
+  left: 1.6rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(239, 236, 226, 0.22);
+}
+.thTitle {
+  margin: 0;
+  font-size: clamp(1.7rem, 6.2vw, 4.6rem);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.thLine {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  color: rgba(239, 236, 226, 0.5);
+  text-align: center;
+  padding: 0 1.4rem;
+}
+.thClock {
+  font-size: clamp(0.55rem, 1.5vw, 0.72rem);
+  letter-spacing: 0.34em;
+  color: var(--red);
+}
+.thWait {
+  margin-top: 1.9rem;
+  font-size: 1.05rem;
+  color: rgba(239, 236, 226, 0.2);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.thBegin {
+  margin-top: 1.2rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  letter-spacing: 0.42em;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0.4rem 0.2rem;
+  transition: color 0.35s ease;
+}
+.thBegin:hover { color: var(--red); }
+.thCaret { animation: cxBlink 1.1s steps(1) infinite; }
+.thNag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.4rem;
+  text-align: center;
+  padding: 0 1.4rem;
+}
+.thNagShout {
+  font-size: clamp(1.1rem, 5vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--red);
+}
+.thNagLine {
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  line-height: 1.9;
+  color: rgba(239, 236, 226, 0.45);
+}
+.thFine {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 1.6rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  color: rgba(239, 236, 226, 0.28);
+}
+.thHome {
+  position: fixed;
+  right: 2rem;
+  bottom: 1.5rem;
+  z-index: 41;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  color: var(--ink-mid);
+  text-decoration: none;
+}
+.thHome:hover { color: var(--red); }
+.thGrain {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+/* the labels sit on a scrap of black so the type never runs through them */
+.thTripHud,
+.thHud {
+  background: rgba(0, 0, 0, 0.82);
+  padding: 0.35rem 0.6rem;
+}
+.thTripHudL { left: 40px; top: 30px; }
+.thTripHudR { right: 40px; top: 30px; }
+.thHudL { left: 114px; top: 38px; }
+.thHudR { right: 114px; top: 38px; }

@@ -46,12 +46,14 @@ const TOWER = {
 const ALBUMS = [
   { key: "deftones", url: "/rave", hint: "01 · SIDE B · UNKNOWN LOVERZ · CLICK TO OPEN" },
   { key: "acdc" },
-  { key: "aphex" },
+  { key: "aphex", url: "/thumbed", hint: "03 · THUMBED · ONE SHEET EVERY FIFTEEN MINUTES" },
   { key: "acid" },
   { key: "floyd" },
   { key: "lcd" },
 ];
 const SLOT_COUNT = ALBUMS.length;
+// the discs that hold records, in order: the audio's slot k lives here
+const RECORD_DISCS = ALBUMS.map((a, k) => (a.url ? -1 : k)).filter((k) => k >= 0);
 const RECORD_HINT = "LOAD THIS RECORD · THE HEAD MOVES TO IT";
 
 /* The first time the cursor finds each object it is told, once, what the
@@ -1616,7 +1618,7 @@ function TowerSVG({ active, haunt, onLoad }) {
             {disc}
           </a>
         ) : (
-          <g key={k} {...h} onClick={() => onLoad?.(k - 1)}>
+          <g key={k} {...h} onClick={() => onLoad?.(RECORD_DISCS.indexOf(k))}>
             {disc}
           </g>
         );
@@ -3230,7 +3232,7 @@ export default function Home() {
         controlRef={audioCtlRef}
         analyserRef={analyserRef}
         onTrackChange={setTrackTitle}
-        onSlotChange={(slot) => setActiveSlot(1 + (slot % RECORD_SLOTS))}
+        onSlotChange={(slot) => setActiveSlot(RECORD_DISCS[slot % RECORD_SLOTS])}
         playing={playing}
         setPlaying={setPlaying}
         volume={volume}

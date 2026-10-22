@@ -25,13 +25,14 @@ const ITEMS = [
   "user48736353001",
 ];
 
-/* The changer holds five records at a time — discs 02 to 06; disc 01 is
-   side b, not a record. The shuffled pool is dealt onto those slots in
-   fives: the running index never wraps, and the slot a record sits in is
-   simply index mod five. Load a disc and the index jumps to that slot of
-   the current five; let a record end and it steps to the next disc, so
-   the reader head walks down the changer on its own. */
-export const RECORD_SLOTS = 5;
+/* The changer holds four records at a time — discs 02, 04, 05 and 06;
+   01 is side b and 03 is the sheet, not records. The shuffled pool is
+   dealt onto those slots in fours: the running index never wraps, and
+   the slot a record sits in is simply index mod four. Load a disc and
+   the index jumps to that slot of the current four; let a record end and
+   it steps to the next disc, so the reader head walks down the changer
+   on its own. */
+export const RECORD_SLOTS = 4;
 
 // "017 - 0125 - Tha Milk Float.mp3" → "Tha Milk Float"
 // "1 Chink 101-187925716.mp3"       → "Chink 101"
