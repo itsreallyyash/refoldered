@@ -16,8 +16,11 @@ import { useEffect, useRef, useState } from "react";
 // user48736353001 account's tracks. Pooling mirrors means a dead file on
 // one node just skips to a copy on the other; the pool is deduped by
 // cleaned title so the shuffle doesn't repeat itself.
+/* Healthiest first. AphexTwinAllUser18081971SoundcloudTracks is gone from
+   this list on purpose: every file under it currently answers 503, so
+   roughly half the shuffle landed on a track that would never make a
+   sound — the element reports playing while readyState stays 0. */
 const ITEMS = [
-  "AphexTwinAllUser18081971SoundcloudTracks",
   "aphex_twin_user18081971_soundcloud",
   "user48736353001",
 ];
