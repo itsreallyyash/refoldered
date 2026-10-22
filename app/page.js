@@ -157,7 +157,9 @@ const GLOBE_CITIES = [
   { lat: -23.55, lon: -46.63, label: "BRAZIL" },
 ];
 
-const RING_TEXT = "REFOLDERED · REFOLDERED · ";
+// the rim inscription that orbits the globe; three repeats so the
+// tracking around the ellipse reads as letterspacing, not gaps
+const RING_TEXT = "REFOLDERED · REFOLDERED · REFOLDERED · ";
 
 /* ================= ROTATING COIN → ASCII GLOBE =================
    Precise trig geometry rendered to an offscreen canvas, converted to a
@@ -412,15 +414,25 @@ function PillCanvas() {
 
     const GR = 178; // globe radius
 
+    // The inscription is set like every other label on the sheet: small,
+    // medium weight, tracked wide. It passes in front of the globe and
+    // behind it, and reads through the dot field on its own — nothing is
+    // knocked out to make room for it.
     function drawRingHalf(now, front) {
       const n = RING_TEXT.length;
-      const base = now / 1700;
+      const base = now / 2600;
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(-0.3);
-      ctx.font = "800 34px ui-monospace, Menlo, monospace";
+      ctx.font = "600 13px ui-monospace, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
+      // in front, each glyph casts a little shadow onto the dot field so
+      // it stays legible over the land without a box behind it
+      if (front) {
+        ctx.shadowColor = "rgba(0,0,0,0.95)";
+        ctx.shadowBlur = 5;
+      }
       for (let i = 0; i < n; i++) {
         const a = base + (i * Math.PI * 2) / n;
         const isFront = Math.sin(a) > 0;
@@ -432,23 +444,15 @@ function PillCanvas() {
         ctx.save();
         ctx.translate(ex, ey);
         ctx.rotate(Math.atan2(Math.cos(a) * 0.38, -Math.sin(a) * 1.22));
-        // knock a dark gap out of the globe behind each glyph so the
-        // heavy type stays readable against the dot field
-        if (front) {
-          ctx.fillStyle = "rgba(7,7,6,0.82)";
-          ctx.fillRect(-13, -19, 26, 38);
-        }
         ctx.fillStyle =
           ch === "·"
-            ? "#d43d2a"
+            ? front
+              ? "#d43d2a"
+              : "rgba(212,61,42,0.35)"
             : front
-              ? "#f6f4ec"
-              : "rgba(240,238,230,0.22)";
+              ? "rgba(240,238,230,0.88)"
+              : "rgba(240,238,230,0.16)";
         ctx.fillText(ch, 0, 0);
-        if (front) {
-          // double-strike for extra weight
-          ctx.fillText(ch, 0.6, 0);
-        }
         ctx.restore();
       }
       ctx.restore();
